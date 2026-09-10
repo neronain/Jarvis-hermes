@@ -194,7 +194,9 @@ curl -X POST http://100.84.136.110:8769/tts \
 | Thai TTS sidecar (F5-TTS-TH v2) | ✅ **รันจริงบน GPU** |
 | systemd units + installer | ✅ ใช้ deploy จริงแล้ว |
 | ทดสอบ end-to-end | ✅ **ผ่าน** — พูด → ถอดกลับ ตรงกัน 96% |
-| Host adapter (แทน ElevenLabs) | ⏳ เขียนเสร็จ + มีเทสต์ — รอต่อเข้า `jarvis_ai` |
+| Host adapter (แทน ElevenLabs) | ✅ **ต่อเข้า `jarvis_ai` แล้ว รันจริง** |
+| Voice server + Hermes API | ✅ รันเป็น systemd service |
+| พูดไทย → agent เรียก tool → ตอบเป็นเสียงไทย | ✅ **ผ่าน** |
 | เสียงอ้างอิงของจริง | ⏳ ตอนนี้ใช้เสียงตัวอย่างจากผู้พัฒนา F5-TTS-THAI |
 | Streaming TTS แบบคำต่อคำ | 📋 ยังไม่ทำ (ตอนนี้แบ่งเป็นประโยค) |
 | Wake word ("จาร์วิส") | 📋 ยังไม่ทำ |
