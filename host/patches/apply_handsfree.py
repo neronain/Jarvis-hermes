@@ -90,6 +90,7 @@ const VAD = Object.assign({
   bargeMargin: 6.0,   // ... over the assistant's echo, to count as interrupting
   echoGuardMs: 700,   // keep the strict bar this long after the last audio chunk
   cooldownMs: 1200,   // after sending a turn, refuse to open another at all
+  prerollMs:   640,   // audio kept from *before* the detector fired (see below)
   dropRatio:  0.22,   // ... or this fraction of the turn's own peak (see below)
   floorUp:    0.02,   // noise floor rises slowly
   floorDown:  0.25,   // ... and falls quickly, to recover after speech
@@ -99,6 +100,20 @@ const VAD_DEBUG = !!localStorage.getItem("jarvisVadDebug");
 
 let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnPeak=0;
 let agentBusy=false, lastAudioAt=0, ackBuffers=[], cooldownUntil=0;
+
+// A detector can only fire after enough speech has arrived to be sure it is
+// speech — by then the first syllables are already past. Without this the turn
+// starts mid-word and the transcript is the tail of the sentence: "ได้ไหม"
+// where the speaker said "รันคำสั่งบน computer ได้ไหม". So every frame is kept
+// for a moment whether or not a turn is open, and the buffer is flushed ahead
+// of the live audio when one starts.
+let preroll=[];
+const PREROLL_FRAMES = Math.max(1, Math.round(VAD.prerollMs / VAD.frameMs));
+
+function pushPreroll(buf){
+  preroll.push(buf);
+  while(preroll.length > PREROLL_FRAMES) preroll.shift();
+}
 
 // Fetched once per session so end-of-turn playback is instant. Failures are
 // silent: no acknowledgment is a duller experience, not a broken one.
@@ -164,7 +179,11 @@ function beginTurn(interrupting){
   audioArrived=false;
   ws.send(JSON.stringify({type:"start",sample_rate:16000,format:"pcm_s16le",
                           channels:1,conversation:CONV}));
-  capturing=true; turnMs=0; vadSilence=0; turnPeak=0;
+  // The words that opened the turn, before the live stream takes over.
+  for(const b of preroll) ws.send(b);
+  turnMs = preroll.length * VAD.frameMs;   // that audio counts toward the turn
+  preroll = [];
+  capturing=true; vadSilence=0; turnPeak=0;
   setState("listening","LISTENING", interrupting?"INTERRUPTED — GO AHEAD":"SPEAKING DETECTED");
   hfStatus(interrupting?"interrupting":"listening","ok");
 }
@@ -185,7 +204,7 @@ function dropTurn(){
   // processes a buffer on "stop", and the next "start" clears it, so simply
   // not finishing the turn discards it.
   capturing=false;
-  vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0;
+  vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0; preroll=[];
   $("levelBar").style.width="0%";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
   hfStatus("waiting");
@@ -270,7 +289,7 @@ async function toggleHandsFree(){
   try{ await initMic() }catch(err){ addMsg("sys","mic blocked: "+err.message); return }
   loadAcks();                       // not awaited: the first turn can go without
   handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0; turnPeak=0;
-  agentBusy=false; lastAudioAt=0; cooldownUntil=0;
+  agentBusy=false; lastAudioAt=0; cooldownUntil=0; preroll=[];
   $("talkBtn").textContent="■ END SESSION";
   $("micState").textContent="LIVE";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
@@ -295,6 +314,7 @@ MIC_NEW = '''echoCancellation:true,noiseSuppression:true,autoGainControl:false''
 
 LEVEL_OLD = '''      if(capturing)$("levelBar").style.width=(level*100).toFixed(0)+"%";'''
 LEVEL_NEW = '''      if(capturing)$("levelBar").style.width=(level*100).toFixed(0)+"%";
+      else if(handsFree) pushPreroll(e.data);  // keep the run-up to a turn
       vadFrame(level);   // hands-free turn detection rides the level meter'''
 
 # Only the big button becomes the session toggle. The ring and Space stay
