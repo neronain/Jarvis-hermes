@@ -438,3 +438,11 @@ class TestEnglishGloss:
 
     def test_numbers_in_parentheses_survive(self, g):
         assert "สอง" in g.normalize("ทั้งหมด (2) รายการ")
+
+    def test_a_phrase_beats_a_word_that_means_something_else(self):
+        """"line" reads as ไลน์ for a Line ID, which is wrong inside Command Line."""
+        n = tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {},
+            "words": {"line": "ไลน์", "Command Line": "คอมมานด์ไลน์"}})
+        assert n.normalize("การใช้ Command Line") == "การใช้ คอมมานด์ไลน์"
+        assert n.normalize("Line ID") == "ไลน์ ไอดี"

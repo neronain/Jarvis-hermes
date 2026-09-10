@@ -218,11 +218,23 @@ server:
   local_name: "HERMES · ORB VM"     # ชื่อที่โชว์ในแผง MACHINES
 ```
 
-แล้วต่อสาย panel MODELS LOADOUT ให้แสดงค่าจริง:
+### ใส่ patch ทั้งหมด
 
 ```bash
-python host/patches/apply_hud_fixes.py ~/jarvis_ai
+python host/patches/apply_all.py ~/jarvis_ai
 ```
+
+**ต้องใช้ตัวนี้เสมอ ห้ามเรียก patcher ทีละตัว** — แต่ละตัวจะ restore จาก `.orig`
+เมื่อเจอไฟล์ที่ patch ไปแล้ว ซึ่งถูกเมื่อดูตัวเดียว แต่**ล้างงานของตัวอื่นทิ้ง**
+เมื่อใช้เป็นชุด (เคยทำให้แผง MODELS LOADOUT ย้อนกลับไปเป็นค่า hardcode ของ upstream)
+
+| patcher | เปลี่ยนอะไร |
+|---|---|
+| `apply_f5_tts.py` | ให้ voice server ใช้ F5-TTS-TH แทน ElevenLabs |
+| `apply_hud_fixes.py` | `/api/loadout` + แผง MODELS LOADOUT อ่านค่าจริง + ชื่อเครื่อง |
+| `apply_handsfree.py` | โหมดคุยต่อเนื่อง + เสียงตอบรับ + `/api/ack` |
+
+เพิ่ม patcher ใหม่ = เพิ่มชื่อใน `PATCHES` ของ `apply_all.py` ที่เดียว
 
 ### ใส่ token
 
