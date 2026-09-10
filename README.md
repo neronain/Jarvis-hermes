@@ -179,6 +179,7 @@ curl -X POST http://100.84.136.110:8769/tts \
 | [DEPLOYMENT](docs/DEPLOYMENT.md) | ติดตั้งจากศูนย์ทั้งสองฝั่ง + ต่อกับ `jarvis_ai` |
 | [THAI-TTS](docs/THAI-TTS.md) | F5-TTS-TH, การทำเสียงอ้างอิง, การจูนคุณภาพ |
 | [CONFIGURATION](docs/CONFIGURATION.md) | ตัวแปรทุกตัวและผลของมัน |
+| [PERFORMANCE](docs/PERFORMANCE.md) | ตัวเลขที่วัดจริง และคอขวดอยู่ตรงไหน |
 | [OPERATIONS](docs/OPERATIONS.md) | runbook: ดู log, restart, อัปเดต, สำรอง |
 | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | อาการ → สาเหตุ → วิธีแก้ |
 | [SECURITY](docs/SECURITY.md) | โมเดลภัยคุกคาม, การจัดการ token, การเปิดพอร์ต |
@@ -206,7 +207,8 @@ deploy บน **RTX PRO 4000 Blackwell** (sm_120, 24 GB) ผ่าน Tailscale:
 |---|---|
 | TTS (F5-TTS-TH v2) | 3.03 วินาทีของเสียง ใน **0.90 วินาที** — เร็วกว่า realtime 3.4 เท่า |
 | STT (`large-v3` float16) | **0.50 วินาที** ต่อคลิป 3 วินาที — RTF **8.3×** |
-| **round trip เต็มวง** | **1.39 วินาที** |
+| **round trip เต็มวง (STT+TTS)** | **1.39 วินาที** |
+| พูด → agent ตอบ → ได้ยินเสียง | 6–9 วินาที ([ทำไม](docs/PERFORMANCE.md)) |
 | VRAM ที่ใช้ | 5.0 GB / 24 GB (ทั้งสองโมเดลพร้อมกัน) |
 
 > ทดสอบด้วย `./scripts/smoke-test.sh` — สังเคราะห์ประโยคไทย ส่งกลับให้ STT
