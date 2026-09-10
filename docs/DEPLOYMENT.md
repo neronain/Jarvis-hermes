@@ -179,6 +179,28 @@ else:
 `F5TTSProvider.stream(text)` คืน iterator ของ PCM16 16 kHz — รูปแบบเดียวกับ
 ที่ ElevenLabs provider คืน จึงต่อเข้ากับ path ส่งเสียงเดิมได้ทันที
 
+### สร้าง TLS cert สำหรับ HUD
+
+เบราว์เซอร์จะให้สิทธิ์ไมโครโฟนเฉพาะบน `https` (หรือ `localhost`) เท่านั้น
+HUD บน LAN IP จึงใช้ไม่ได้ถ้าไม่มี cert:
+
+```bash
+./scripts/make-certs.sh ~/jarvis_ai
+```
+
+> **cert ต้องอยู่ที่ `<jarvis_ai>/server/certs/`** — `server.py` resolve
+> `tls_cert` เทียบกับไดเรกทอรีของตัวเอง ไม่ใช่ root ของ repo · ถ้าวางไว้ที่
+> `<jarvis_ai>/certs/` มันจะ **ข้าม TLS ไปเงียบ ๆ** ไม่มี error ให้เห็น
+> พอร์ต 8766 จะไม่เปิดขึ้นมาเฉย ๆ
+
+### ติดตั้งเป็น service
+
+```bash
+./scripts/install-host-service.sh ~/jarvis_ai
+systemctl --user enable --now jarvis-voice
+loginctl enable-linger "$USER"
+```
+
 ### ใส่ token
 
 token อยู่ใน `~/.hermes/.env` (ไฟล์เดียวกับที่ Hermes ใช้):
