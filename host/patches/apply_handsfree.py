@@ -31,6 +31,50 @@ import sys
 from pathlib import Path
 
 MARKER = "/* jarvis-hermes: hands-free */"
+SRV_MARKER = "# --- jarvis-hermes: instant ack ---"
+
+ACK_ENDPOINT = '''
+''' + SRV_MARKER + '''
+# A turn takes six to fourteen seconds. People do not wait that long in silence
+# without assuming they were not heard, so the assistant says something within
+# a few hundred milliseconds of you stopping — the way a person says "mm" while
+# they think. It changes nothing about the real latency and everything about
+# how the wait feels.
+#
+# Upstream has ack_after_seconds and ack_texts in its example config but never
+# reads either (grep says zero), so this is built rather than configured.
+ACK_TEXTS = ["ครับ", "ได้ครับ", "รับทราบครับ", "อืม"]
+_ACK_CACHE: dict = {}
+
+
+@app.get("/api/ack")
+async def ack(i: int = -1):
+    """One short acknowledgment as 16 kHz PCM. Synthesised once, then cached.
+
+    The clips are fetched and decoded by the HUD when a hands-free session
+    starts, so playing one at end-of-turn costs nothing at the moment it
+    matters.
+    """
+    import random
+    from fastapi.responses import Response as _Resp
+
+    idx = i if 0 <= i < len(ACK_TEXTS) else random.randrange(len(ACK_TEXTS))
+    if idx not in _ACK_CACHE:
+        pcm = b""
+        voice = CFG.get("voice") or {}
+        try:
+            if voice.get("provider") == "f5_tts_th":
+                from f5_tts_provider import F5TTSProvider
+                pcm = F5TTSProvider.from_config(voice).synthesize(ACK_TEXTS[idx])
+        except Exception:
+            # No ack is a worse experience, not a broken one - stay quiet.
+            import traceback; traceback.print_exc()
+        _ACK_CACHE[idx] = pcm
+    return _Resp(content=_ACK_CACHE[idx], media_type="application/octet-stream")
+
+
+'''
+
 
 JS = MARKER + """
 // Tunables. Rooms differ, so these can be overridden at runtime without a
@@ -53,7 +97,36 @@ const VAD = Object.assign({
 const VAD_DEBUG = !!localStorage.getItem("jarvisVadDebug");
 
 let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnPeak=0;
-let agentBusy=false, lastAudioAt=0;
+let agentBusy=false, lastAudioAt=0, ackBuffers=[];
+
+// Fetched once per session so end-of-turn playback is instant. Failures are
+// silent: no acknowledgment is a duller experience, not a broken one.
+async function loadAcks(){
+  ackBuffers=[];
+  for(let i=0;i<4;i++){
+    try{
+      const r=await fetch("/api/ack?i="+i);
+      if(!r.ok) continue;
+      const raw=await r.arrayBuffer();
+      if(raw.byteLength<640) continue;          // under 20 ms is not a word
+      const i16=new Int16Array(raw), f32=new Float32Array(i16.length);
+      for(let k=0;k<i16.length;k++) f32[k]=i16[k]/32768;
+      const ab=audioCtx.createBuffer(1,f32.length,16000); ab.copyToChannel(f32,0);
+      ackBuffers.push(ab);
+    }catch{}
+  }
+}
+
+function playAck(){
+  if(!ackBuffers.length || !audioCtx) return;
+  const ab=ackBuffers[Math.floor(Math.random()*ackBuffers.length)];
+  const src=audioCtx.createBufferSource();
+  src.buffer=ab; src.connect(audioCtx.destination); src.start();
+  // Deliberately not added to activeSources: barge-in must never cancel it,
+  // and it is over before the reply begins. But the microphone will hear it,
+  // so the echo guard has to cover it or it opens a turn of its own.
+  lastAudioAt = performance.now() + ab.duration*1000;
+}
 
 function botSpeaking(){
   return activeSources.length>0 && audioCtx && playhead > audioCtx.currentTime + 0.05;
@@ -98,6 +171,7 @@ function beginTurn(interrupting){
 function endTurn(why){
   capturing=false;
   ws.send(JSON.stringify({type:"stop"}));
+  playAck();   // answer the silence immediately, before the agent has started
   vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0;
   $("levelBar").style.width="0%";
   setState("thinking","PROCESSING");
@@ -185,6 +259,7 @@ async function toggleHandsFree(){
     return;
   }
   try{ await initMic() }catch(err){ addMsg("sys","mic blocked: "+err.message); return }
+  loadAcks();                       // not awaited: the first turn can go without
   handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0; turnPeak=0;
   agentBusy=false; lastAudioAt=0;
   $("talkBtn").textContent="■ END SESSION";
@@ -217,6 +292,18 @@ LEVEL_NEW = '''      if(capturing)$("levelBar").style.width=(level*100).toFixed(
 # push-to-talk, so a single deliberate turn is still one press — useful when
 # the room is loud, or when you want to think mid-sentence without the pause
 # being read as the end of your turn.
+# An empty transcript is routine in hands-free - a cough that beat the length
+# filter, or a barge-in the room triggered. Upstream shows it as an error and
+# leaves the ring in whatever state it was; here it just re-arms.
+ERR_OLD = '''    else if(e.type==="error"){ clearLive(); addMsg("sys","error: "+e.message); setState("standby","STANDBY"); showStop(false); }'''
+ERR_NEW = '''    else if(e.type==="error"){
+      clearLive(); showStop(false);
+      const quiet = handsFree && /no transcript/i.test(e.message||"");
+      if(!quiet) addMsg("sys","error: "+e.message);
+      setState("standby","STANDBY", handsFree?"HANDS-FREE — JUST TALK":undefined);
+      if(handsFree) hfStatus("waiting");
+    }'''
+
 BIND_OLD = '''$("talkBtn").onclick=toggleTalk;
 $("reactorWrap").onclick=toggleTalk;'''
 BIND_NEW = '''$("talkBtn").onclick=toggleHandsFree;
@@ -234,9 +321,24 @@ def main(argv: list[str]) -> int:
         return 2
     root = Path(argv[1]).expanduser().resolve()
     hud = root / "server" / "hud" / "index.html"
-    if not hud.exists():
-        print(f"missing: {hud}", file=sys.stderr)
-        return 1
+    srv = root / "server" / "server.py"
+    for f in (hud, srv):
+        if not f.exists():
+            print(f"missing: {f}", file=sys.stderr)
+            return 1
+
+    # The ack endpoint lives beside the other /api routes.
+    ssrc = srv.read_text(encoding="utf-8")
+    if SRV_MARKER not in ssrc:
+        srv_anchor = '@app.get("/api/machines")'
+        if srv_anchor not in ssrc:
+            print("server anchor not found for the ack endpoint", file=sys.stderr)
+            return 1
+        sbak = srv.with_suffix(".py.orig")
+        if not sbak.exists():
+            shutil.copy2(srv, sbak)
+        srv.write_text(ssrc.replace(srv_anchor, ACK_ENDPOINT + srv_anchor, 1), encoding="utf-8")
+        print(f"patched {srv.name} (ack endpoint)")
 
     backup = hud.with_suffix(".html.orig")
     src = hud.read_text(encoding="utf-8")
@@ -250,7 +352,7 @@ def main(argv: list[str]) -> int:
         src = backup.read_text(encoding="utf-8")
 
     anchor = "/* ---- pop-up viewer ---- */"
-    for needle in (BTN_OLD, LEVEL_OLD, BIND_OLD, SPACE_OLD, MIC_OLD, anchor):
+    for needle in (BTN_OLD, LEVEL_OLD, BIND_OLD, SPACE_OLD, MIC_OLD, ERR_OLD, anchor):
         if needle not in src:
             print(f"anchor not found: {needle.strip()[:60]}", file=sys.stderr)
             return 1
@@ -264,6 +366,7 @@ def main(argv: list[str]) -> int:
     src = src.replace(BIND_OLD, BIND_NEW, 1)
     src = src.replace(SPACE_OLD, SPACE_NEW, 1)
     src = src.replace(MIC_OLD, MIC_NEW, 1)
+    src = src.replace(ERR_OLD, ERR_NEW, 1)
     src = src.replace(anchor, JS + "\n" + anchor, 1)
     hud.write_text(src, encoding="utf-8")
     print(f"patched {hud}")
