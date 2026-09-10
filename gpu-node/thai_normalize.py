@@ -152,8 +152,15 @@ class ThaiNormalizer:
     _MD_CODE = re.compile(r"`{1,3}([^`]*)`{1,3}", re.S)
     _MD_BULLET = re.compile(r"^[ \t]*[*\-+•]\s+", re.M)
     _MD_HEAD = re.compile(r"^#{1,6}\s*", re.M)
+    _MD_RULE = re.compile(r"(?:^|\s)[-*_]{3,}(?=\s|$)", re.M)
+    # "1." opening an item is a marker, not a number. Left alone it becomes
+    # "หนึ่ง." and the trailing period splits the sentence there, so the reply
+    # stops dead after every list number.
+    _MD_ORDERED = re.compile(r"(?:(?<=^)|(?<=\s))(\d{1,2})\.(?=\s)", re.M)
 
     def _strip_markdown(self, text: str) -> str:
+        text = self._MD_RULE.sub(" ", text)
+        text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)
         text = self._MD_LINK.sub(r"\1", text)
         text = self._MD_CODE.sub(r"\1", text)
         text = self._MD_BULLET.sub("", text)
@@ -168,6 +175,12 @@ class ThaiNormalizer:
         # Unmatched markers survive the pair-matching passes above; a stray "**"
         # is voiced as noise, so sweep whatever is left.
         text = re.sub(r"[*`#]+", " ", text)
+        # Quotation marks are typography, not speech.
+        text = re.sub(r"[\"\u201c\u201d\u2018\u2019]", " ", text)
+        # "A/B" is a choice; "10/09" is a date and "co/th" a path. Only the
+        # letter-flanked case reads as "or".
+        text = re.sub(r"(?<=[A-Za-z\u0E00-\u0E7F])\s*/\s*(?=[A-Za-z\u0E00-\u0E7F])",
+                      " หรือ ", text)
         return text
 
     # Thai numbers: 02-437-1210, 081-234-5678, 0812345678, +66 81 234 5678.

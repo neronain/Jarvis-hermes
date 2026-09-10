@@ -258,3 +258,55 @@ class TestTheContactCase:
 
     def test_no_digits_are_left_unspoken(self, biz):
         assert not any(c.isdigit() for c in biz.normalize(self.SRC))
+
+
+class TestStructuredProse:
+    """A long explanatory reply: headings, numbered lists, glossed English."""
+
+    @pytest.fixture
+    def doc(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"/": " ทับ "},
+            "words": {"PDPA": "พีดีพีเอ", "Data Subject": "ดาต้า ซับเจกต์",
+                      "controller": "คอนโทรลเลอร์", "processor": "โพรเซสเซอร์"},
+        })
+
+    def test_a_list_number_does_not_end_the_sentence(self, doc):
+        """"1." became "หนึ่ง." and the splitter stopped the reply there."""
+        out = doc.normalize("1. การขอความยินยอม")
+        assert out.startswith("ข้อหนึ่ง")
+        assert "." not in out
+
+    def test_list_numbers_count_up(self, doc):
+        out = doc.normalize("1. หนึ่ง\n2. สอง\n3. สาม")
+        assert "ข้อหนึ่ง" in out and "ข้อสอง" in out and "ข้อสาม" in out
+
+    def test_a_decimal_is_not_a_list_marker(self, doc):
+        assert "จุดห้า" in doc.normalize("อุณหภูมิ 36.5 องศา")
+
+    def test_headings_lose_their_hashes(self, doc):
+        assert "#" not in doc.normalize("### **PDPA คืออะไร?**")
+
+    def test_horizontal_rules_are_removed(self, doc):
+        assert "-" not in doc.normalize("ก่อนหน้า\n---\nถัดไป")
+
+    def test_quotation_marks_are_removed(self, doc):
+        out = doc.normalize('เรียกว่า "ข้อมูลส่วนบุคคล" ครับ')
+        assert '"' not in out and "ข้อมูลส่วนบุคคล" in out
+
+    def test_slash_between_words_is_a_choice(self, doc):
+        """Controller/Processor is "or"; it is not a path."""
+        assert "คอนโทรลเลอร์ หรือ โพรเซสเซอร์" in doc.normalize("Data Controller/Processor")
+
+    def test_slash_between_numbers_stays_a_date(self, doc):
+        assert "กันยายน" in doc.normalize("10/09/2026")
+
+    def test_multiword_english_terms_beat_single_words(self, doc):
+        assert doc.normalize("Data Subject") == "ดาต้า ซับเจกต์"
+
+    def test_unknown_acronyms_are_spelled(self, doc):
+        assert "พีทีพีเอ" in doc.normalize("PTPA")
+
+    def test_a_name_is_left_for_the_model(self, doc):
+        """Nero is five letters — spelling it out would be worse than an attempt."""
+        assert "Nero" in doc.normalize("รบกวนคุณ Nero")
