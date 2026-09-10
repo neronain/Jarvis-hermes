@@ -201,6 +201,22 @@ systemctl --user enable --now jarvis-voice
 loginctl enable-linger "$USER"
 ```
 
+### เปิด HUD ให้เข้าถึงได้
+
+```yaml
+# server.yaml — จำเป็น มิฉะนั้น socket จะหลุดตลอด
+security:
+  extra_origin_hosts: ["<LAN IP ของ host>", "<hostname>"]
+server:
+  local_name: "HERMES · ORB VM"     # ชื่อที่โชว์ในแผง MACHINES
+```
+
+แล้วต่อสาย panel MODELS LOADOUT ให้แสดงค่าจริง:
+
+```bash
+python host/patches/apply_hud_fixes.py ~/jarvis_ai
+```
+
 ### ใส่ token
 
 token อยู่ใน `~/.hermes/.env` (ไฟล์เดียวกับที่ Hermes ใช้):

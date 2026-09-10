@@ -65,6 +65,56 @@ JARVIS_STT_COMPUTE=int8_float16
 
 ---
 
+## HUD ขึ้น "LINK DOWN" / Socket offline
+
+WebSocket ของ HUD ต้องผ่าน **สองด่าน** ไม่ใช่ด่านเดียว:
+
+```python
+if host not in ALLOWED_ORIGIN_HOSTS: return False   # ด่าน 1
+return ws.cookies.get("jarvis_token") == token      # ด่าน 2
+```
+
+`ALLOWED_ORIGIN_HOSTS` มีแค่ `jarvis.local`, `jarvis`, `localhost`, `127.0.0.1`
+**เปิด HUD ด้วย LAN IP จึงถูกปฏิเสธเสมอ** แม้ token ถูกต้อง และอาการที่เห็นคือ
+socket ต่อแล้วหลุดทุก 3 วินาที ไม่มี error ให้เห็นบนหน้าจอ
+
+```yaml
+# server.yaml
+security:
+  extra_origin_hosts: ["192.168.139.181", "hermesjarvis.orb.local"]
+```
+
+> ทดสอบด้วย `curl`/สคริปต์จะ **ไม่เจอปัญหานี้** เพราะไม่ส่ง `Origin` header
+> ซึ่งโค้ดตีความว่าเป็น native client แล้วปล่อยผ่าน — ต้องทดสอบด้วยเบราว์เซอร์จริง
+
+---
+
+## API ตอบ 401 ทั้งที่ใส่ `?token=`
+
+WebSocket รับ token ได้ทั้งจาก cookie และ query param แต่ **HTTP API รับเฉพาะ
+cookie หรือ header `X-Jarvis-Token`**:
+
+```bash
+curl -sk --cookie "jarvis_token=$JARVIS_HUD_TOKEN" https://host:8766/api/loadout
+```
+
+บนเบราว์เซอร์ไม่ต้องทำอะไร — HUD เก็บ cookie ให้เองหลังใส่ token ครั้งแรก
+
+---
+
+## MODELS LOADOUT แสดงค่าผิด
+
+ของ upstream เป็น **HTML ที่เขียนค่าตายตัว** ไม่ได้อ่านจากระบบเลย · patch
+`host/patches/apply_hud_fixes.py` เปลี่ยนให้ดึงจาก `/api/loadout` ซึ่งอ่าน
+model จริงของ Hermes และถาม sidecar ทั้งสองตัวสด ๆ
+
+```bash
+python host/patches/apply_hud_fixes.py ~/jarvis_ai
+systemctl --user restart jarvis-voice
+```
+
+---
+
 ## TTS ตอบ 500 — `TorchCodec is required for load_with_torchcodec`
 
 torchaudio ตั้งแต่ 2.9 เลิกมี decoder ของตัวเองและไปเรียก `torchcodec` ซึ่ง
