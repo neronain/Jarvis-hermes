@@ -267,3 +267,57 @@ class TestProviderConfig:
         out = list(p.stream("one. boom. three."))
         assert len(calls) == 3        # all three attempted
         assert out == [b"\x01\x02", b"\x01\x02"]   # two survived
+
+
+# --------------------------------------------------------------------------
+# torchaudio decoder shim
+# --------------------------------------------------------------------------
+
+class TestAudioBackendShim:
+    """The shim exists because torchaudio >= 2.9 needs FFmpeg it may not have.
+
+    Getting the axis order wrong here is silent: the library indexes audio[0]
+    for the first channel, so a transposed return feeds it one *sample* across
+    all channels instead of one channel — which synthesises noise rather than
+    raising.
+    """
+
+    def _stereo_wav(self, tmp_path):
+        path = tmp_path / "ref.wav"
+        with wave.open(str(path), "wb") as w:
+            w.setnchannels(2); w.setsampwidth(2); w.setframerate(22050)
+            # left = +0.5 full-scale, right = silence, so the axes are telling apart
+            frames = b"".join(b"\x00\x40" + b"\x00\x00" for _ in range(1000))
+            w.writeframes(frames)
+        return path
+
+    def test_shim_returns_channels_first(self, tmp_path, monkeypatch):
+        pytest.importorskip("torch")
+        pytest.importorskip("soundfile")
+        import torchaudio
+
+        monkeypatch.setitem(sys.modules, "torchcodec", None)   # force the fallback
+        real_load = torchaudio.load
+        try:
+            tts._ensure_audio_backend()
+            data, rate = torchaudio.load(str(self._stereo_wav(tmp_path)))
+            assert rate == 22050
+            assert data.shape == (2, 1000), "must be (channels, samples)"
+            assert data[0].abs().max() > 0.1, "channel 0 should be the loud one"
+            assert data[1].abs().max() == 0.0, "channel 1 should be silent"
+        finally:
+            torchaudio.load = real_load
+
+    def test_shim_is_a_noop_when_torchcodec_exists(self, monkeypatch):
+        pytest.importorskip("torch")
+        import torchaudio
+
+        monkeypatch.setitem(sys.modules, "torchcodec", object())
+        sentinel = object()
+        real_load = torchaudio.load
+        try:
+            torchaudio.load = sentinel
+            tts._ensure_audio_backend()
+            assert torchaudio.load is sentinel, "must not patch when torchcodec is present"
+        finally:
+            torchaudio.load = real_load

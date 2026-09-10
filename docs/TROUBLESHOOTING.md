@@ -65,6 +65,35 @@ JARVIS_STT_COMPUTE=int8_float16
 
 ---
 
+## TTS ตอบ 500 — `TorchCodec is required for load_with_torchcodec`
+
+torchaudio ตั้งแต่ 2.9 เลิกมี decoder ของตัวเองและไปเรียก `torchcodec` ซึ่ง
+ต้องมี FFmpeg ระดับระบบ · `tts_server.py` ตรวจเรื่องนี้ตอนบูตและสลับไปใช้
+`soundfile` แทนอัตโนมัติ ถ้ายังเจอ error นี้แปลว่ารันโค้ดเวอร์ชันเก่าอยู่:
+
+```bash
+ssh msi-4 'cd ~/Jarvis-hermes && git pull && systemctl --user restart jarvis-tts'
+journalctl --user -u jarvis-tts | grep "backed by soundfile"
+```
+
+ผลข้างเคียงที่ต้องรู้: **คลิปอ้างอิงต้องเป็น WAV** เพราะ `soundfile` ไม่อ่าน
+mp3/m4a และ pydub ก็ต้องพึ่ง FFmpeg สำหรับฟอร์แมตเหล่านั้น
+
+---
+
+## systemd อ่านค่า env ผิด — `Invalid compute type: float16    # ...`
+
+`EnvironmentFile=` ของ systemd **ไม่ตัด comment ท้ายบรรทัด** — `VAR=value  # note`
+จะได้ค่าเป็น `value  # note` ทั้งก้อน (ต่างจาก `source` ของ bash ที่ตัดให้)
+
+```bash
+grep -nE '^[A-Z_]+=[^#]*[^ ]+[[:space:]]+#' ~/Jarvis-hermes/gpu-node/.env
+sed -i -E 's/^([A-Z_]+=[^#]*[^ #])[[:space:]]+#.*$/\1/' ~/Jarvis-hermes/gpu-node/.env
+systemctl --user restart jarvis-stt jarvis-tts
+```
+
+---
+
 ## เสียงออกมาเพี้ยน ฟังไม่รู้เรื่อง
 
 เรียงตามความน่าจะเป็น:

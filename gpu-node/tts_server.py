@@ -113,8 +113,43 @@ def _load_voices() -> None:
         raise SystemExit(f"default voice '{_default_voice}' is not defined in {VOICES_FILE}")
 
 
+def _ensure_audio_backend() -> None:
+    """Give ``torchaudio.load`` a decoder that needs no system libraries.
+
+    torchaudio >= 2.9 removed its built-in decoders and delegates to
+    ``torchcodec``, which links against system FFmpeg. f5-tts-th was written
+    against the older API and calls ``torchaudio.load()`` directly, so on a node
+    with no FFmpeg — and no root to install it — every request dies with
+    "TorchCodec is required for load_with_torchcodec".
+
+    soundfile is already a dependency and bundles libsndfile, so it decodes the
+    WAV reference clips without anything installed system-wide. Only ``load``
+    needs replacing: the ``torchaudio.transforms`` the library also uses are
+    pure tensor ops.
+    """
+    try:
+        import torchcodec  # noqa: F401
+        return  # torchaudio's own path works here
+    except Exception:
+        pass
+
+    import soundfile as sf
+    import torch
+    import torchaudio
+
+    def _load(path, *_args, **_kwargs):
+        # soundfile yields (samples, channels); torchaudio's contract is
+        # (channels, samples), and callers index audio[0] for the first channel.
+        data, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        return torch.from_numpy(np.ascontiguousarray(data.T)), rate
+
+    torchaudio.load = _load
+    LOG.info("torchaudio.load backed by soundfile (no torchcodec/FFmpeg on this node)")
+
+
 def _load_model() -> None:
     global _tts
+    _ensure_audio_backend()
     from f5_tts_th.tts import TTS  # imported late: pulls in torch + CUDA
 
     LOG.info("loading F5-TTS-TH model=%s ...", MODEL_VERSION)
