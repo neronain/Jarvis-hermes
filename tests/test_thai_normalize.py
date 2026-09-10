@@ -310,3 +310,33 @@ class TestStructuredProse:
     def test_a_name_is_left_for_the_model(self, doc):
         """Nero is five letters — spelling it out would be worse than an attempt."""
         assert "Nero" in doc.normalize("รบกวนคุณ Nero")
+
+
+class TestEmoji:
+    """Assistants emit emoji constantly; the model has no reading for them."""
+
+    @pytest.fixture
+    def e(self):
+        return tn.ThaiNormalizer(lexicon={"abbreviations": {}, "symbols": {}, "words": {}})
+
+    @pytest.mark.parametrize("text", [
+        "พร้อมลุยงาน 🚀",
+        "ยินดีครับ 😊",
+        "ดีมาก 👍🏽",              # with a skin-tone modifier
+        "ทีม 👨‍👩‍👧‍👦 พร้อม",       # ZWJ sequence
+        "เสร็จแล้ว ✅",
+        "ขึ้น ↑ ลง ↓",
+    ])
+    def test_emoji_are_removed(self, e, text):
+        out = e.normalize(text)
+        assert not any(ord(c) > 0x2000 and not (0x0E00 <= ord(c) <= 0x0E7F) for c in out), out
+
+    def test_thai_text_survives_alongside_emoji(self, e):
+        assert e.normalize("พร้อมลุยงาน 🚀 ครับ") == "พร้อมลุยงาน ครับ"
+
+    def test_the_thai_repetition_mark_is_not_an_emoji(self, e):
+        """ๆ sits near the symbol ranges; stripping it would break real Thai."""
+        assert "ๆ" in e.normalize("ปกติ ๆ ไม่มีอะไร")
+
+    def test_percent_still_works_next_to_an_arrow(self, e):
+        assert "เปอร์เซ็นต์" in e.normalize("ราคา 50% ↑")

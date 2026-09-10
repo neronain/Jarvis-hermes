@@ -153,12 +153,27 @@ class ThaiNormalizer:
     _MD_BULLET = re.compile(r"^[ \t]*[*\-+•]\s+", re.M)
     _MD_HEAD = re.compile(r"^#{1,6}\s*", re.M)
     _MD_RULE = re.compile(r"(?:^|\s)[-*_]{3,}(?=\s|$)", re.M)
+    # Emoji reach the model as characters it has no reading for, and it either
+    # voices something arbitrary or stumbles. Assistants emit them constantly.
+    # Ranges rather than a list: new emoji are added to Unicode every year.
+    _EMOJI = re.compile(
+        "["
+        "\U0001F000-\U0001FAFF"   # pictographs, emoticons, transport, symbols
+        "\U00002600-\U000027BF"   # misc symbols + dingbats
+        "\U0001F1E6-\U0001F1FF"   # regional indicators (flags)
+        "\U0000FE00-\U0000FE0F"   # variation selectors
+        "\U0000200D"               # zero-width joiner, for combined emoji
+        "\U00002190-\U000021FF"   # arrows
+        "\U00002B00-\U00002BFF"   # misc symbols and arrows
+        "]+"
+    )
     # "1." opening an item is a marker, not a number. Left alone it becomes
     # "หนึ่ง." and the trailing period splits the sentence there, so the reply
     # stops dead after every list number.
     _MD_ORDERED = re.compile(r"(?:(?<=^)|(?<=\s))(\d{1,2})\.(?=\s)", re.M)
 
     def _strip_markdown(self, text: str) -> str:
+        text = self._EMOJI.sub(" ", text)
         text = self._MD_RULE.sub(" ", text)
         text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)
         text = self._MD_LINK.sub(r"\1", text)
