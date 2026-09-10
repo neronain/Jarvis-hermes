@@ -206,6 +206,7 @@ curl -X POST http://100.113.214.111:8769/tts \
 |---|---|
 | [ARCHITECTURE](docs/ARCHITECTURE.md) | การไหลของข้อมูล, สัญญา API, เหตุผลการออกแบบ |
 | [DEPLOYMENT](docs/DEPLOYMENT.md) | ติดตั้งจากศูนย์ทั้งสองฝั่ง + ต่อกับ `jarvis_ai` |
+| [TEXT-NORMALIZATION](docs/TEXT-NORMALIZATION.md) | อะไรถูกแปลงก่อนอ่าน และเพิ่มคำเองยังไง |
 | [THAI-TTS](docs/THAI-TTS.md) | F5-TTS-TH, การทำเสียงอ้างอิง, การจูนคุณภาพ |
 | [CONFIGURATION](docs/CONFIGURATION.md) | ตัวแปรทุกตัวและผลของมัน |
 | [HUD](docs/HUD.md) | เข้าหน้าจอ, token, origin allowlist, แต่ละแผงอ่านค่าจากไหน |
@@ -229,6 +230,8 @@ curl -X POST http://100.113.214.111:8769/tts \
 | พูดไทย → agent เรียก tool → ตอบเป็นเสียงไทย | ✅ **ผ่าน** |
 | HUD บนเบราว์เซอร์ | ✅ **คุยได้จริงแล้ว** |
 | แผง MODELS LOADOUT อ่านค่าจริง | ✅ ไม่ใช่ค่าตายตัวของ upstream อีกต่อไป |
+| ตัดความเงียบ / เว้นจังหวะประโยค | ✅ ช่องว่างต่อรอยต่อ 0.60s → 0.08s |
+| แปลงข้อความไทยก่อนอ่าน | ✅ ตัวเลข เวลา เบอร์โทร อีเมล markdown ([รายละเอียด](docs/TEXT-NORMALIZATION.md)) |
 | เสียงอ้างอิงของจริง | ⏳ ตอนนี้ใช้เสียงตัวอย่างจากผู้พัฒนา F5-TTS-THAI |
 | Streaming TTS แบบคำต่อคำ | 📋 ยังไม่ทำ (ตอนนี้แบ่งเป็นประโยค) |
 | Wake word ("จาร์วิส") | 📋 ยังไม่ทำ |
