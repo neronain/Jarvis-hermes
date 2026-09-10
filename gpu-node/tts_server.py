@@ -60,6 +60,11 @@ NATIVE_RATE = 24000  # F5-TTS-TH output rate
 DEFAULT_STEP = int(os.environ.get("JARVIS_TTS_STEP", "32"))
 DEFAULT_CFG = float(os.environ.get("JARVIS_TTS_CFG", "2.0"))
 DEFAULT_SPEED = float(os.environ.get("JARVIS_TTS_SPEED", "1.0"))
+# f5_tts_th.infer() re-splits anything longer than its own `max_chars` (default
+# 100) on raw character count. We already split on sentence boundaries, which
+# is the better cut, so this is raised above our own cap to stop the library
+# adding a second, worse split inside each sentence.
+DEFAULT_MAX_CHARS = int(os.environ.get("JARVIS_TTS_MAX_CHARS", "250"))
 
 # One model, one GPU: serialise inference so concurrent HUD requests queue
 # instead of racing for VRAM.
@@ -130,6 +135,7 @@ def _warmup() -> None:
                 step=DEFAULT_STEP,
                 cfg=DEFAULT_CFG,
                 speed=voice["speed"],
+                max_chars=DEFAULT_MAX_CHARS,
             )
         LOG.info("warmup complete")
     except Exception:
@@ -216,6 +222,7 @@ async def health() -> dict:
         "status": "ok" if _tts is not None else "loading",
         "model": f"F5-TTS-TH-{MODEL_VERSION}",
         "device": "cuda",
+        "max_chars": DEFAULT_MAX_CHARS,
         "native_rate": NATIVE_RATE,
         "pcm_rate": PCM_RATE,
         "voices": sorted(_voices),
@@ -266,6 +273,7 @@ async def tts(request: Request):
     step = int(body.get("step") or DEFAULT_STEP)
     cfg = float(body.get("cfg") or DEFAULT_CFG)
     speed = float(body.get("speed") or voice["speed"])
+    max_chars = int(body.get("max_chars") or DEFAULT_MAX_CHARS)
 
     t0 = time.time()
     try:
@@ -277,6 +285,7 @@ async def tts(request: Request):
                 step=step,
                 cfg=cfg,
                 speed=speed,
+                max_chars=max_chars,
             )
     except Exception as exc:
         _stats["errors"] += 1

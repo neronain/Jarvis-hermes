@@ -46,6 +46,7 @@
 | `JARVIS_TTS_STEP` | `32` | ดู [THAI-TTS](THAI-TTS.md#การจูนคุณภาพกับความเร็ว) |
 | `JARVIS_TTS_CFG` | `2.0` | |
 | `JARVIS_TTS_SPEED` | `1.0` | ค่ากลาง ถูก override ด้วยค่าในแต่ละเสียง |
+| `JARVIS_TTS_MAX_CHARS` | `250` | ส่งต่อไปยัง `infer()` ต้อง **สูงกว่า** `max_chars` ของตัวแบ่งประโยค (220) มิฉะนั้น library จะตัดซ้ำอีกชั้นด้วยจำนวนตัวอักษรดิบ |
 | `JARVIS_TTS_WARMUP` | `1` | |
 
 ### Stats
