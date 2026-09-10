@@ -187,8 +187,17 @@ class ThaiNormalizer:
         r"([\u0E00-\u0E7F]{1,12})"
         r"\s*[*_`\"\u201c\u201d]+\s*(?=[\u0E00-\u0E7F])")
 
+    # A parenthesised English gloss after Thai — `ด้านราคาและความคุ้มค่า (Cost &
+    # Licensing)` — exists for a reader scanning a page. Spoken, it says the
+    # same thing twice in two languages and doubles the length of every heading.
+    # Dropped entirely; the Thai beside it already carried the meaning.
+    # Parentheses holding Thai, or numbers, are left alone.
+    _EN_GLOSS = re.compile(
+        r"(?<=[\u0E00-\u0E7F])\s*\(\s*[A-Za-z][A-Za-z0-9 &/\-.'\u2019]*\)")
+
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
+        text = self._EN_GLOSS.sub("", text)
         text = self._EMPH_SHORT.sub(r"\1", text)
         text = self._MD_RULE.sub(" ", text)
         text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)

@@ -412,3 +412,29 @@ class TestVersions:
     def test_space_before_punctuation_is_removed(self, v):
         """Stripping a marker can leave a pause in front of a comma."""
         assert " ," not in v.normalize("vSphere, **ESXi** , หรือ")
+
+
+class TestEnglishGloss:
+    """Thai business writing glosses its terms in English for readers."""
+
+    @pytest.fixture
+    def g(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"&": " และ "}, "words": {}})
+
+    def test_a_gloss_after_thai_is_dropped(self, g):
+        """`ด้านราคาและความคุ้มค่า (Cost & Licensing)` says it twice, aloud."""
+        out = g.normalize("ด้านราคาและความคุ้มค่า (Cost & Licensing) นี่คือจุดเปลี่ยน")
+        assert "Cost" not in out and "Licensing" not in out
+        assert "ด้านราคาและความคุ้มค่า" in out
+
+    def test_thai_in_parentheses_survives(self, g):
+        """Only an English gloss is redundant; Thai in brackets is content."""
+        assert "เขียนโค้ด" in g.normalize("เริ่มงานใหม่ (เช่น เขียนโค้ด วางแผน)")
+
+    def test_a_gloss_after_an_acronym_is_kept(self, g):
+        """`HA (High Availability)` explains the acronym rather than repeating it."""
+        assert "High Availability" in g.normalize("จุดแข็งเรื่อง HA (High Availability)")
+
+    def test_numbers_in_parentheses_survive(self, g):
+        assert "สอง" in g.normalize("ทั้งหมด (2) รายการ")
