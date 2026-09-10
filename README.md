@@ -90,21 +90,21 @@ Jarvis-hermes ต่อยอดจาก [`eadmin2/jarvis_ai`](https://github.c
 
 ### 1. ติดตั้งบน GPU node
 
+**วิธีที่สั้นที่สุด — รันบนเครื่อง GPU คำสั่งเดียว:**
+
 ```bash
-git clone https://github.com/neronain/Jarvis-hermes.git
-cd Jarvis-hermes
-./scripts/deploy-gpu-node.sh neronain@100.84.136.110
+curl -fsSL https://raw.githubusercontent.com/neronain/Jarvis-hermes/main/scripts/bootstrap.sh | bash
 ```
 
-หรือถ้าอยู่บนเครื่อง GPU อยู่แล้ว:
+สคริปต์จะ clone repo, ติดตั้ง sidecar ทั้งสอง, **สร้าง token ให้เอง**, เปิด
+systemd service แล้วพิมพ์ค่าที่ต้องเอาไปใส่ฝั่ง host ออกมาให้ · รันซ้ำได้
+โดยไม่ทับ token/เสียง/config ที่แก้ไว้
+
+**หรือ deploy จากเครื่อง dev ผ่าน SSH** (ต้องมี key auth ไว้ก่อน):
 
 ```bash
-cd gpu-node
-./install.sh --systemd
-cp .env.example .env      # ใส่ token ทั้งสองตัว
-# วางคลิปเสียงอ้างอิงใน voices/ แล้วแก้ voices.yaml
-systemctl --user enable --now jarvis-stt jarvis-tts jarvis-stats
-loginctl enable-linger "$USER"
+git clone https://github.com/neronain/Jarvis-hermes.git && cd Jarvis-hermes
+./scripts/deploy-gpu-node.sh neronain@100.84.136.110
 ```
 
 ### 2. ตั้งค่าฝั่ง host
