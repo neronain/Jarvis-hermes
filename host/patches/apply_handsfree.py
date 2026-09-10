@@ -99,6 +99,11 @@ const VAD = Object.assign({
 const VAD_DEBUG = !!localStorage.getItem("jarvisVadDebug");
 
 let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnPeak=0;
+// Speech actually detected inside the turn, as opposed to how long the turn
+// has been open. The two diverged the moment pre-roll started the clock at
+// 640 ms, which let the minimum-length filter pass on turns containing no
+// speech at all — the assistant then acknowledged an empty room, out loud.
+let turnSpeechMs=0;
 let agentBusy=false, lastAudioAt=0, ackBuffers=[], cooldownUntil=0;
 
 // A detector can only fire after enough speech has arrived to be sure it is
@@ -183,6 +188,9 @@ function beginTurn(interrupting){
   for(const b of preroll) ws.send(b);
   turnMs = preroll.length * VAD.frameMs;   // that audio counts toward the turn
   preroll = [];
+  // ... but not toward the speech test: the pre-roll is whatever the room was
+  // doing, and only what the detector called speech should let a turn through.
+  turnSpeechMs = vadSpeech;
   capturing=true; vadSilence=0; turnPeak=0;
   setState("listening","LISTENING", interrupting?"INTERRUPTED — GO AHEAD":"SPEAKING DETECTED");
   hfStatus(interrupting?"interrupting":"listening","ok");
@@ -193,7 +201,7 @@ function endTurn(why){
   ws.send(JSON.stringify({type:"stop"}));
   playAck();   // answer the silence immediately, before the agent has started
   cooldownUntil = performance.now() + VAD.cooldownMs;
-  vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0;
+  vadSpeech=0; vadSilence=0; turnMs=0; turnSpeechMs=0; turnPeak=0;
   $("levelBar").style.width="0%";
   setState("thinking","PROCESSING");
   hfStatus(why==="max"?"sent (max length)":"thinking");
@@ -204,7 +212,7 @@ function dropTurn(){
   // processes a buffer on "stop", and the next "start" clears it, so simply
   // not finishing the turn discards it.
   capturing=false;
-  vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0; preroll=[];
+  vadSpeech=0; vadSilence=0; turnMs=0; turnSpeechMs=0; turnPeak=0; preroll=[];
   $("levelBar").style.width="0%";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
   hfStatus("waiting");
@@ -245,8 +253,12 @@ function vadFrame(lvl){
   if(capturing) turnPeak = Math.max(turnPeak, lvl);
   const gate = capturing ? Math.max(absGate, turnPeak*VAD.dropRatio) : absGate;
 
-  if(lvl > gate){ vadSpeech += VAD.frameMs; vadSilence = 0; }
-  else          { vadSilence += VAD.frameMs; if(!capturing) vadSpeech = 0; }
+  if(lvl > gate){
+    vadSpeech += VAD.frameMs; vadSilence = 0;
+    if(capturing) turnSpeechMs += VAD.frameMs;
+  } else {
+    vadSilence += VAD.frameMs; if(!capturing) vadSpeech = 0;
+  }
 
   if(VAD_DEBUG) hfStatus(`${lvl.toFixed(3)}>${gate.toFixed(3)} sil${vadSilence}${active?" busy":""}`);
 
@@ -256,8 +268,9 @@ function vadFrame(lvl){
     // must not hang forever waiting for a silence it will never see.
     if(turnMs >= VAD.maxTurnMs){ endTurn("max"); return; }
     if(vadSilence >= VAD.endMs){
-      // turnMs includes the trailing silence; the speech is what came before.
-      if(turnMs - vadSilence >= VAD.minTurnMs) endTurn(); else dropTurn();
+      // Measured in speech, not in elapsed time: a turn opened by a door
+      // closing runs the full end-of-turn window and would otherwise pass.
+      if(turnSpeechMs >= VAD.minTurnMs) endTurn(); else dropTurn();
     }
     return;
   }
@@ -289,7 +302,7 @@ async function toggleHandsFree(){
   try{ await initMic() }catch(err){ addMsg("sys","mic blocked: "+err.message); return }
   loadAcks();                       // not awaited: the first turn can go without
   handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0; turnPeak=0;
-  agentBusy=false; lastAudioAt=0; cooldownUntil=0; preroll=[];
+  agentBusy=false; lastAudioAt=0; cooldownUntil=0; preroll=[]; turnSpeechMs=0;
   $("talkBtn").textContent="■ END SESSION";
   $("micState").textContent="LIVE";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");

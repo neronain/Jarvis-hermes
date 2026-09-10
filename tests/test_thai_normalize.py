@@ -368,3 +368,20 @@ class TestThaiSpacing:
     def test_a_quoted_english_word_is_still_separated(self, th):
         out = th.normalize('แบบ "Robot" ที่ตั้งใจ')
         assert "Robot" in out
+
+    def test_a_long_emphasised_span_keeps_its_spacing(self, th):
+        """A marker opening a sentence looks like one wrapping a word.
+
+        Closing every gap ran sentences together: `เกินเหตุ **เอาล่ะครับ`
+        became `เกินเหตุเอาล่ะครับ`. Length is what separates emphasis inside a
+        phrase from a clause of its own.
+        """
+        out = th.normalize("ที่ดูตั้งใจเกินเหตุ **เอาล่ะครับ ผมกลับมา**")
+        assert "เกินเหตุ เอาล่ะครับ" in out
+
+    def test_a_short_emphasis_still_closes_up(self, th):
+        assert th.normalize('ผม "นึก" ว่าคุณ') == "ผมนึกว่าคุณ"
+
+    def test_slash_between_thai_takes_no_spaces(self, th):
+        """`การฟัง/การรับรู้` is one phrase; spaces would pause inside it."""
+        assert th.normalize("ความสามารถในการฟัง/การรับรู้") == "ความสามารถในการฟังหรือการรับรู้"

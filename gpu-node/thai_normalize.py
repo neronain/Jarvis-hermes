@@ -173,16 +173,23 @@ class ThaiNormalizer:
     _MD_ORDERED = re.compile(r"(?:(?<=^)|(?<=\s))(\d{1,2})\.(?=\s)", re.M)
 
     # Thai does not put spaces between words; a space is a phrase break and is
-    # read as a pause. Emphasis markers need room around them, so a writer types
-    # `ผม "นึก" ว่า` — and stripping just the quotes leaves `ผม นึก ว่า`, which
-    # is spoken with a pause on either side of the emphasised word. Removing the
-    # marker together with the space it required restores `ผมนึกว่า`.
-    _EMPH_IN_THAI = re.compile(
-        r"(?<=[\u0E00-\u0E7F])\s*[*_`\"\u201c\u201d\u2018\u2019]+\s*(?=[\u0E00-\u0E7F])")
+    # read as a pause. Emphasis markers need room, so a writer types
+    # `ผม "นึก" ว่า` — and stripping only the quotes leaves `ผม นึก ว่า`, spoken
+    # with a pause on either side of the emphasised word.
+    #
+    # Only a SHORT span is closed up. A first attempt matched any marker between
+    # Thai characters and ran sentences together: `เกินเหตุ **เอาล่ะครับ` became
+    # `เกินเหตุเอาล่ะครับ`, because a marker opening a new sentence looks exactly
+    # like one wrapping a word. Length is the signal that separates them — a
+    # word or two is emphasis inside a phrase, a longer span is its own clause.
+    _EMPH_SHORT = re.compile(
+        r"(?<=[\u0E00-\u0E7F])\s*[*_`\"\u201c\u201d]+\s*"
+        r"([\u0E00-\u0E7F]{1,12})"
+        r"\s*[*_`\"\u201c\u201d]+\s*(?=[\u0E00-\u0E7F])")
 
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
-        text = self._EMPH_IN_THAI.sub("", text)
+        text = self._EMPH_SHORT.sub(r"\1", text)
         text = self._MD_RULE.sub(" ", text)
         text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)
         text = self._MD_LINK.sub(r"\1", text)
@@ -205,8 +212,10 @@ class ThaiNormalizer:
         text = re.sub(r"[\"\u201c\u201d\u2018\u2019]", " ", text)
         # "A/B" is a choice; "10/09" is a date and "co/th" a path. Only the
         # letter-flanked case reads as "or".
-        text = re.sub(r"(?<=[A-Za-z\u0E00-\u0E7F])\s*/\s*(?=[A-Za-z\u0E00-\u0E7F])",
-                      " หรือ ", text)
+        # "A/B" is a choice. Between Thai it takes no spaces — adding them
+        # would put a pause on each side of a word that is read as one phrase.
+        text = re.sub(r"(?<=[\u0E00-\u0E7F])\s*/\s*(?=[\u0E00-\u0E7F])", "หรือ", text)
+        text = re.sub(r"(?<=[A-Za-z])\s*/\s*(?=[A-Za-z])", " หรือ ", text)
         return text
 
     # Thai numbers: 02-437-1210, 081-234-5678, 0812345678, +66 81 234 5678.
