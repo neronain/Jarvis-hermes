@@ -36,18 +36,22 @@ JS = MARKER + """
 // Tunables. Rooms differ, so these can be overridden at runtime without a
 // redeploy:  localStorage.setItem("jarvisVad", JSON.stringify({endMs:1200}))
 const VAD = Object.assign({
-  frameMs:     80,    // one worklet frame; everything below is in milliseconds
-  startMs:    200,    // speech must persist this long before a turn opens
-  bargeMs:    420,    // ... and longer to interrupt the assistant
-  endMs:      900,    // silence this long closes the turn
-  minTurnMs:  400,    // anything shorter is a cough, not a sentence
+  frameMs:      80,   // one worklet frame; everything below is milliseconds
+  startMs:     200,   // speech must persist this long before a turn opens
+  bargeMs:     420,   // ... and longer to interrupt the assistant
+  endMs:       900,   // silence this long closes the turn
+  minTurnMs:   400,   // anything shorter is a cough, not a sentence
+  maxTurnMs: 20000,   // hard stop: a turn always ends, whatever the detector thinks
   speakMargin: 3.0,   // level over the room's noise floor to count as speech
   bargeMargin: 6.0,   // ... over the assistant's echo, to count as interrupting
-  floorAlpha: 0.05,   // how fast the noise floor follows the room
-  floorMin:  0.004,   // never trust a floor below this
+  dropRatio:  0.22,   // ... or this fraction of the turn's own peak (see below)
+  floorUp:    0.02,   // noise floor rises slowly
+  floorDown:  0.25,   // ... and falls quickly, to recover after speech
+  floorMin:  0.004,
 }, (()=>{ try{ return JSON.parse(localStorage.getItem("jarvisVad")||"{}") }catch{ return {} } })());
+const VAD_DEBUG = !!localStorage.getItem("jarvisVadDebug");
 
-let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0;
+let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnPeak=0;
 
 function botSpeaking(){
   return activeSources.length>0 && audioCtx && playhead > audioCtx.currentTime + 0.05;
@@ -62,27 +66,26 @@ function beginTurn(interrupting){
   audioArrived=false;
   ws.send(JSON.stringify({type:"start",sample_rate:16000,format:"pcm_s16le",
                           channels:1,conversation:CONV}));
-  capturing=true; turnMs=0; vadSilence=0;
+  capturing=true; turnMs=0; vadSilence=0; turnPeak=0;
   setState("listening","LISTENING", interrupting?"INTERRUPTED — GO AHEAD":"SPEAKING DETECTED");
   hfStatus(interrupting?"interrupting":"listening","ok");
 }
 
-function endTurn(){
+function endTurn(why){
   capturing=false;
   ws.send(JSON.stringify({type:"stop"}));
-  vadSpeech=0; vadSilence=0; turnMs=0;
+  vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0;
   $("levelBar").style.width="0%";
   setState("thinking","PROCESSING");
-  hfStatus("thinking");
+  hfStatus(why==="max"?"sent (max length)":"thinking");
 }
 
 function dropTurn(){
-  // Too short to be speech — a cough, a door. Nothing is sent: the server
-  // only processes a buffer on "stop", and the next "start" clears it, so
-  // simply not finishing the turn discards it. (There is no "cancel" message
-  // and inventing one would need a server change for no gain.)
+  // Too short to be speech - a cough, a door. Nothing is sent: the server only
+  // processes a buffer on "stop", and the next "start" clears it, so simply
+  // not finishing the turn discards it.
   capturing=false;
-  vadSpeech=0; vadSilence=0; turnMs=0;
+  vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0;
   $("levelBar").style.width="0%";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
   hfStatus("waiting");
@@ -91,20 +94,37 @@ function dropTurn(){
 function vadFrame(lvl){
   if(!handsFree || !wsReady) return;
   const speaking = botSpeaking();
-  // Only learn the room when neither side is talking, or the floor creeps up
-  // to match whoever is speaking and the detector goes deaf.
+
+  // Learn the room only when neither side is talking, or the floor climbs to
+  // match whoever is speaking and the detector goes deaf. Asymmetric on
+  // purpose: rise slowly so a passing noise does not raise the bar, fall
+  // quickly so the room is re-learned as soon as a turn ends.
   if(!capturing && !speaking){
-    noiseFloor = (noiseFloor===null) ? lvl
-               : noiseFloor*(1-VAD.floorAlpha) + lvl*VAD.floorAlpha;
+    const a = (noiseFloor===null || lvl < noiseFloor) ? VAD.floorDown : VAD.floorUp;
+    noiseFloor = (noiseFloor===null) ? lvl : noiseFloor*(1-a) + lvl*a;
   }
   const floor  = Math.max(noiseFloor===null?VAD.floorMin:noiseFloor, VAD.floorMin);
-  const thresh = floor * (speaking ? VAD.bargeMargin : VAD.speakMargin);
+  const absGate = floor * (speaking ? VAD.bargeMargin : VAD.speakMargin);
 
-  if(lvl > thresh){ vadSpeech += VAD.frameMs; vadSilence = 0; }
-  else            { vadSilence += VAD.frameMs; if(!capturing) vadSpeech = 0; }
+  // Absolute levels alone are not enough. Browser auto gain control lifts the
+  // signal once you stop talking, so room noise can sit at the same level your
+  // voice did and an absolute gate never sees silence - the turn then never
+  // ends, which is exactly the bug this replaced. Comparing against the
+  // loudest frame of this turn survives that: whatever the gain does, silence
+  // is far below the peak of actual speech.
+  if(capturing) turnPeak = Math.max(turnPeak, lvl);
+  const gate = capturing ? Math.max(absGate, turnPeak*VAD.dropRatio) : absGate;
+
+  if(lvl > gate){ vadSpeech += VAD.frameMs; vadSilence = 0; }
+  else          { vadSilence += VAD.frameMs; if(!capturing) vadSpeech = 0; }
+
+  if(VAD_DEBUG) hfStatus(`${lvl.toFixed(3)}>${gate.toFixed(3)} sil${vadSilence}`);
 
   if(capturing){
     turnMs += VAD.frameMs;
+    // The safety net. Even if the detector is wrong about the room, a turn
+    // must not hang forever waiting for a silence it will never see.
+    if(turnMs >= VAD.maxTurnMs){ endTurn("max"); return; }
     if(vadSilence >= VAD.endMs){
       // turnMs includes the trailing silence; the speech is what came before.
       if(turnMs - vadSilence >= VAD.minTurnMs) endTurn(); else dropTurn();
@@ -137,7 +157,7 @@ async function toggleHandsFree(){
     return;
   }
   try{ await initMic() }catch(err){ addMsg("sys","mic blocked: "+err.message); return }
-  handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0;
+  handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0; turnPeak=0;
   $("talkBtn").textContent="■ END SESSION";
   $("micState").textContent="LIVE";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
@@ -152,6 +172,13 @@ BTN_NEW = '''        <button class="btn" id="talkBtn" style="flex:1">ENGAGE VOIC
       </div>
       <div class="kv"><span>Hands-free</span><b id="hfState">off</b></div>
       <div style="display:none">'''
+
+# Auto gain control is the single thing that breaks an energy-based detector:
+# it lifts the signal once you stop talking, so the room noise ends up at the
+# level your voice was and silence never arrives. Echo cancellation and noise
+# suppression stay on - both help, neither hides the pause.
+MIC_OLD = '''echoCancellation:true,noiseSuppression:true,autoGainControl:true'''
+MIC_NEW = '''echoCancellation:true,noiseSuppression:true,autoGainControl:false'''
 
 LEVEL_OLD = '''      if(capturing)$("levelBar").style.width=(level*100).toFixed(0)+"%";'''
 LEVEL_NEW = '''      if(capturing)$("levelBar").style.width=(level*100).toFixed(0)+"%";
@@ -182,18 +209,23 @@ def main(argv: list[str]) -> int:
         print(f"missing: {hud}", file=sys.stderr)
         return 1
 
+    backup = hud.with_suffix(".html.orig")
     src = hud.read_text(encoding="utf-8")
     if MARKER in src:
-        print("already patched - nothing to do")
-        return 0
+        # Re-apply rather than refuse: this file gets iterated on, and patching
+        # a patched file would nest the block.
+        if not backup.exists():
+            print("already patched but no .orig to rebuild from", file=sys.stderr)
+            return 1
+        print("already patched - rebuilding from .orig")
+        src = backup.read_text(encoding="utf-8")
 
     anchor = "/* ---- pop-up viewer ---- */"
-    for needle in (BTN_OLD, LEVEL_OLD, BIND_OLD, SPACE_OLD, anchor):
+    for needle in (BTN_OLD, LEVEL_OLD, BIND_OLD, SPACE_OLD, MIC_OLD, anchor):
         if needle not in src:
             print(f"anchor not found: {needle.strip()[:60]}", file=sys.stderr)
             return 1
 
-    backup = hud.with_suffix(".html.orig")
     if not backup.exists():
         shutil.copy2(hud, backup)
         print(f"backed up {backup.name}")
@@ -202,6 +234,7 @@ def main(argv: list[str]) -> int:
     src = src.replace(LEVEL_OLD, LEVEL_NEW, 1)
     src = src.replace(BIND_OLD, BIND_NEW, 1)
     src = src.replace(SPACE_OLD, SPACE_NEW, 1)
+    src = src.replace(MIC_OLD, MIC_NEW, 1)
     src = src.replace(anchor, JS + "\n" + anchor, 1)
     hud.write_text(src, encoding="utf-8")
     print(f"patched {hud}")
