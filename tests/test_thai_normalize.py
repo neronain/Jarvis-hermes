@@ -340,3 +340,31 @@ class TestEmoji:
 
     def test_percent_still_works_next_to_an_arrow(self, e):
         assert "เปอร์เซ็นต์" in e.normalize("ราคา 50% ↑")
+
+
+class TestThaiSpacing:
+    """Thai has no inter-word spaces; a space is a phrase break, read as a pause."""
+
+    @pytest.fixture
+    def th(self):
+        return tn.ThaiNormalizer(lexicon={"abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_emphasis_inside_a_phrase_does_not_leave_a_pause(self, th):
+        """`ผม "นึก" ว่า` must not become `ผม นึก ว่า` — that is spoken with pauses."""
+        assert th.normalize('ขออภัยที่ผม "นึก" ว่าคุณจะเริ่มใหม่') == "ขออภัยที่ผมนึกว่าคุณจะเริ่มใหม่"
+
+    def test_bold_and_quotes_together(self, th):
+        assert th.normalize('คุณกำลัง **"แกง"** หรือทดสอบ') == "คุณกำลังแกงหรือทดสอบ"
+
+    def test_ordinary_thai_spacing_survives(self, th):
+        """The rule must only close gaps a marker made, never real phrase breaks."""
+        assert th.normalize("ประโยคแรก วรรคปกติ ต้องไม่หาย") == "ประโยคแรก วรรคปกติ ต้องไม่หาย"
+
+    def test_emphasis_at_a_real_boundary_keeps_the_boundary(self, th):
+        """A marker between Thai and non-Thai has no space to reclaim."""
+        out = th.normalize('เข้าใจ **จังหวะ** ครับ')
+        assert "เข้าใจจังหวะครับ" == out
+
+    def test_a_quoted_english_word_is_still_separated(self, th):
+        out = th.normalize('แบบ "Robot" ที่ตั้งใจ')
+        assert "Robot" in out

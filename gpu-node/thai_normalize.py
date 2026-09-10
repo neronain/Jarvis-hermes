@@ -172,8 +172,17 @@ class ThaiNormalizer:
     # stops dead after every list number.
     _MD_ORDERED = re.compile(r"(?:(?<=^)|(?<=\s))(\d{1,2})\.(?=\s)", re.M)
 
+    # Thai does not put spaces between words; a space is a phrase break and is
+    # read as a pause. Emphasis markers need room around them, so a writer types
+    # `ผม "นึก" ว่า` — and stripping just the quotes leaves `ผม นึก ว่า`, which
+    # is spoken with a pause on either side of the emphasised word. Removing the
+    # marker together with the space it required restores `ผมนึกว่า`.
+    _EMPH_IN_THAI = re.compile(
+        r"(?<=[\u0E00-\u0E7F])\s*[*_`\"\u201c\u201d\u2018\u2019]+\s*(?=[\u0E00-\u0E7F])")
+
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
+        text = self._EMPH_IN_THAI.sub("", text)
         text = self._MD_RULE.sub(" ", text)
         text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)
         text = self._MD_LINK.sub(r"\1", text)
