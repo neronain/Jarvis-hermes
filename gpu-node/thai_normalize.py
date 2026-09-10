@@ -186,6 +186,8 @@ class ThaiNormalizer:
         # clock and removing it here would leave _times nothing to match.
         text = re.sub(r"(?<!\d):(?!\d\d)", " ", text)
         text = re.sub(r"[\u2013\u2014]", " ", text)
+        # An ellipsis is a pause in writing and a stumble when read aloud.
+        text = re.sub(r"\.{2,}|\u2026", " ", text)
         text = re.sub(r"[()\[\]{}]", " ", text)
         # Unmatched markers survive the pair-matching passes above; a stray "**"
         # is voiced as noise, so sweep whatever is left.
