@@ -446,3 +446,23 @@ class TestEnglishGloss:
             "words": {"line": "ไลน์", "Command Line": "คอมมานด์ไลน์"}})
         assert n.normalize("การใช้ Command Line") == "การใช้ คอมมานด์ไลน์"
         assert n.normalize("Line ID") == "ไลน์ ไอดี"
+
+
+class TestLinksAndAddresses:
+    @pytest.fixture
+    def a(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"/": " ทับ "},
+            "words": {"BTS": "บีทีเอส", "Google Maps": "กูเกิล แมปส์"}})
+
+    def test_a_markdown_link_keeps_only_its_label(self, a):
+        """A URL read aloud is unlistenable, and the label already says it."""
+        out = a.normalize("ดูที่ [เปิดแผนที่](https://www.google.com/maps/search/?api=1&query=x+y) ครับ")
+        assert "http" not in out and "query" not in out
+        assert "เปิดแผนที่" in out
+
+    def test_a_house_number_keeps_its_slash(self, a):
+        assert "ทับ" in a.normalize("ที่อยู่ 230/51 ซอยกรุงธนบุรี")
+
+    def test_transit_acronyms(self, a):
+        assert "บีทีเอส" in a.normalize("ใกล้กับ BTS กรุงธนบุรี")
