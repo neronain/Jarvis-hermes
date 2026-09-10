@@ -11,7 +11,7 @@
 เลย แค่ช้าลง 20–50 เท่า
 
 ```bash
-ssh msi-4
+ssh rtx4000
 cd ~/jarvis-gpu-node && source .venv/bin/activate
 python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
@@ -36,7 +36,7 @@ systemctl --user restart jarvis-stt jarvis-tts
 path ใน `voices.yaml` ผิด หรือยังไม่ได้วางไฟล์คลิป
 
 ```bash
-ssh msi-4 'ls -la ~/jarvis-gpu-node/voices/'
+ssh rtx4000 'ls -la ~/jarvis-gpu-node/voices/'
 ```
 
 path แบบ relative จะถูกตีความเทียบกับที่อยู่ของ `voices.yaml` ไม่ใช่ cwd
@@ -122,7 +122,7 @@ torchaudio ตั้งแต่ 2.9 เลิกมี decoder ของตั�
 `soundfile` แทนอัตโนมัติ ถ้ายังเจอ error นี้แปลว่ารันโค้ดเวอร์ชันเก่าอยู่:
 
 ```bash
-ssh msi-4 'cd ~/Jarvis-hermes && git pull && systemctl --user restart jarvis-tts'
+ssh rtx4000 'cd ~/Jarvis-hermes && git pull && systemctl --user restart jarvis-tts'
 journalctl --user -u jarvis-tts | grep "backed by soundfile"
 ```
 
@@ -156,7 +156,7 @@ systemctl --user restart jarvis-stt jarvis-tts
 
 ```bash
 # ถอดคลิปอ้างอิงเพื่อเทียบกับ ref_text
-ssh msi-4
+ssh rtx4000
 cd ~/jarvis-gpu-node
 ffmpeg -i voices/jarvis_ref.wav -f s16le -ac 1 -ar 16000 - 2>/dev/null \
   | curl -s -X POST localhost:8768/stt \
@@ -170,7 +170,7 @@ ffmpeg -i voices/jarvis_ref.wav -f s16le -ac 1 -ar 16000 - 2>/dev/null \
 `JARVIS_TTS_PCM_RATE` บน node ไม่ตรงกับ `voice.sample_rate` ฝั่ง host
 
 ```bash
-curl -s http://100.84.136.110:8769/health | grep pcm_rate
+curl -s http://100.113.214.111:8769/health | grep pcm_rate
 grep sample_rate <jarvis_ai>/server/config/server.yaml
 ```
 
@@ -186,7 +186,7 @@ node ไม่ตอบ
 ```bash
 # ยิงตรงไปที่ node เพื่อดูว่า auth ผ่านไหม
 curl -s -o /dev/null -w '%{http_code}\n' \
-  -X POST http://100.84.136.110:8768/stt \
+  -X POST http://100.113.214.111:8768/stt \
   -H "X-Jarvis-Token: $JARVIS_STT_TOKEN" --data-binary @/dev/null
 ```
 
@@ -212,7 +212,7 @@ grep -i "jarvis.voice.f5" <log ของ voice server>
 
 ```bash
 python host/adapters/f5_tts_provider.py \
-  --url http://100.84.136.110:8769 \
+  --url http://100.113.214.111:8769 \
   --text "ทดสอบเสียงภาษาไทย" --out /tmp/t.wav
 ```
 
@@ -222,9 +222,9 @@ python host/adapters/f5_tts_provider.py \
 
 ```bash
 tailscale status | grep dgx-msi-04       # node ออนไลน์ไหม
-ping -c3 100.84.136.110                  # ถึงไหม
-nc -vz 100.84.136.110 8768               # พอร์ตเปิดไหม
-ssh msi-4 'systemctl --user is-active jarvis-stt jarvis-tts'
+ping -c3 100.113.214.111                  # ถึงไหม
+nc -vz 100.113.214.111 8768               # พอร์ตเปิดไหม
+ssh rtx4000 'systemctl --user is-active jarvis-stt jarvis-tts'
 ```
 
 ถ้า ping ได้แต่พอร์ตไม่เปิด มักเป็นเพราะ:
@@ -238,7 +238,7 @@ ssh msi-4 'systemctl --user is-active jarvis-stt jarvis-tts'
 ## บริการดับหลัง logout
 
 ```bash
-ssh msi-4 'loginctl enable-linger $USER'
+ssh rtx4000 'loginctl enable-linger $USER'
 ```
 
 systemd user service จะถูกฆ่าเมื่อ session สุดท้ายจบ เว้นแต่เปิด linger
@@ -248,7 +248,7 @@ systemd user service จะถูกฆ่าเมื่อ session สุด�
 ## โมเดลดาวน์โหลดไม่สำเร็จ
 
 ```bash
-ssh msi-4
+ssh rtx4000
 cd ~/jarvis-gpu-node && source .venv/bin/activate
 python -c "from f5_tts_th.tts import TTS; TTS(model='v2')"
 ```
@@ -268,10 +268,10 @@ export HF_ENDPOINT=https://hf-mirror.com
 ```bash
 {
   echo "=== healthcheck ==="; ./scripts/healthcheck.sh
-  echo "=== stt health ==="; curl -s http://100.84.136.110:8768/health
-  echo "=== tts health ==="; curl -s http://100.84.136.110:8769/health
-  echo "=== node ==="; ssh msi-4 'nvidia-smi; systemctl --user status jarvis-stt jarvis-tts --no-pager'
-  echo "=== recent errors ==="; ssh msi-4 'journalctl --user -u jarvis-tts -p err -n 50 --no-pager'
+  echo "=== stt health ==="; curl -s http://100.113.214.111:8768/health
+  echo "=== tts health ==="; curl -s http://100.113.214.111:8769/health
+  echo "=== node ==="; ssh rtx4000 'nvidia-smi; systemctl --user status jarvis-stt jarvis-tts --no-pager'
+  echo "=== recent errors ==="; ssh rtx4000 'journalctl --user -u jarvis-tts -p err -n 50 --no-pager'
 } > jarvis-debug.txt 2>&1
 ```
 

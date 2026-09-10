@@ -114,7 +114,7 @@ voices:
 ทุก response ของ `/tts` มี header บอกเวลา:
 
 ```bash
-curl -sD- -o /dev/null -X POST http://msi-4:8769/tts \
+curl -sD- -o /dev/null -X POST http://rtx4000:8769/tts \
   -H "X-Jarvis-Token: $JARVIS_TTS_TOKEN" -H 'Content-Type: application/json' \
   -d '{"text":"ทดสอบระบบเสียงภาษาไทย"}' | grep -i x-jarvis
 ```
@@ -128,7 +128,7 @@ curl -sD- -o /dev/null -X POST http://msi-4:8769/tts \
 นิยามได้ไม่จำกัดใน `voices.yaml` แล้วเลือกตอน request:
 
 ```bash
-curl -X POST http://msi-4:8769/tts \
+curl -X POST http://rtx4000:8769/tts \
   -H "Content-Type: application/json" \
   -d '{"text":"สวัสดีค่ะ","voice":"friday"}' --output friday.wav
 ```

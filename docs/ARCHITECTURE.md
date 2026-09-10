@@ -15,13 +15,12 @@
 | ทางเลือก | ปัญหา |
 |---|---|
 | ทุกอย่างบน Mac / OrbStack | ไม่มี CUDA — OrbStack VM เป็น `aarch64` ไม่มี GPU passthrough `large-v3` บน CPU กินเวลาหลายวินาทีต่อประโยค และ F5-TTS ยิ่งช้ากว่า |
-| ทุกอย่างบน msi-4 | Hermes มี state (memory, sessions, cron, kanban) ที่ผูกกับเครื่องที่เปิดตลอด และ GPU node อาจถูกใช้งานอย่างอื่น/รีบูตบ่อย |
+| ทุกอย่างบน GPU node | Hermes มี state (memory, sessions, cron, kanban) ที่ผูกกับเครื่องที่เปิดตลอด และ GPU node อาจถูกใช้งานอย่างอื่น/รีบูตบ่อย |
 | แยกตามที่ทำอยู่ | latency ข้ามเครื่อง ~20 ms ซึ่งน้อยกว่า inference มาก และแต่ละฝั่งอัปเกรดแยกกันได้ |
 
-**ตัวเลขที่วัดจริง:** Mac → `dgx-msi-04` (100.84.136.110) ผ่าน Tailscale
-ได้ 20–23 ms RTT ส่วน OrbStack VM → node ได้ ~20.8 ms เทียบกับ inference
-ของ `large-v3` ที่ ~0.2 s และ F5-TTS ที่ ~1–3 s ต่อประโยค — network เป็น
-สัดส่วนที่เล็กมาก
+**ตัวเลขที่วัดจริง:** OrbStack VM → GPU node ผ่าน Tailscale ได้ ~20 ms RTT
+เทียบกับ STT ที่ 0.50 s และ TTS ที่ 0.59–1.02 s ต่อประโยค — network คิดเป็น
+ไม่ถึง 2% ของเวลาทั้งหมด · ดูตัวเลขเต็มที่ [PERFORMANCE](PERFORMANCE.md)
 
 ## การไหลของหนึ่งเทิร์น
 
@@ -96,6 +95,28 @@ factor — ถ้าน้อยกว่า 1 แปลว่าสังเค
 `GET /stats` → CPU, RAM, disk, GPU (ผ่าน `nvidia-smi`) และสถานะของ sidecar
 ทั้งสองตัว ใช้กับ HUD panel `machines` ของ upstream
 
+## ฝั่ง host
+
+voice server ของ upstream (`jarvis_ai`) ทำหน้าที่: รับเสียงจากเบราว์เซอร์ผ่าน
+WebSocket, เรียก STT, ส่งข้อความให้ Hermes Agent, แล้วส่งเสียงตอบกลับ
+
+repo นี้แก้ upstream **2 จุด** ผ่าน patcher ที่รันซ้ำได้ ไม่ fork:
+
+| patcher | เปลี่ยนอะไร | ทำไมไม่ fork |
+|---|---|---|
+| `apply_f5_tts.py` | ใส่ early return ใน `tts_chunks_sync` ให้ไปใช้ F5-TTS-TH | ทาง ElevenLabs เดิมยังอยู่ครบ ดึง upstream ใหม่ไม่ต้อง merge |
+| `apply_hud_fixes.py` | เพิ่ม `/api/loadout` + ต่อสายแผง MODELS LOADOUT | แผงเดิมเป็น HTML ตายตัว |
+
+### `/api/loadout`
+
+endpoint ที่เพิ่มเข้าไป ตอบว่า "ตอนนี้อะไรทำงานอยู่จริง" โดย:
+
+- **brain** อ่าน `model.default` จาก `~/.hermes/config.yaml`
+- **stt / tts** ยิง `/health` ไปถาม sidecar สด ๆ (cache 30 วินาที)
+
+ที่ยอมจ่ายค่า network call แทนการอ่าน config เพราะ config บอกแค่ว่า *ตั้งใจ*
+ให้อะไรทำงาน ไม่ได้บอกว่ามันทำงานอยู่จริง — sidecar ที่ดับต้องขึ้นว่าดับ
+
 ## การตัดสินใจที่ควรรู้
 
 ### ทำไมล็อกการ inference
@@ -117,6 +138,16 @@ resample เอง
 ใน `F5TTSProvider.stream()` ประโยคที่สังเคราะห์ไม่สำเร็จจะถูก log แล้วข้าม
 เพราะเสียหนึ่งประโยคดีกว่าเสียทั้งเทิร์น ผู้ใช้จะได้ยินคำตอบที่ขาดไปหนึ่ง
 ประโยค แทนที่จะเงียบสนิทแล้วไม่รู้ว่าเกิดอะไรขึ้น
+
+### ทำไม HUD ต้องผ่านสองด่าน
+
+`_ws_allowed` ตรวจทั้ง Origin host และ token · Origin กัน CSRF-style attack
+จากหน้าเว็บอื่นที่เปิดในเบราว์เซอร์เดียวกัน ส่วน token กันคนอื่นในเครือข่าย
+เดียวกัน — คนละภัย จึงต้องมีทั้งคู่
+
+ผลข้างเคียงที่ต้องรู้: client ที่ไม่ส่ง `Origin` (สคริปต์ Python, `curl`,
+push-to-talk client) ถูกตีความว่าเป็น native client และ **ข้ามด่าน Origin ไปเลย**
+ซึ่งแปลว่าการทดสอบด้วย `curl` จะไม่มีวันเจอปัญหา Origin
 
 ### ทำไม token คนละตัวสำหรับ STT และ TTS
 

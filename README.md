@@ -45,9 +45,9 @@ Jarvis-hermes ต่อยอดจาก [`eadmin2/jarvis_ai`](https://github.c
             │ wss
             ▼
 ┌───────────────────────────────┐        ┌──────────────────────────────┐
-│  Voice host                   │        │  GPU node — msi-4            │
-│  OrbStack VM "HermesJarvis"   │        │  100.84.136.110 (Tailscale)  │
-│  aarch64 · ไม่มี GPU           │        │  NVIDIA CUDA                 │
+│  Voice host                   │        │  GPU node — rtx4000            │
+│  OrbStack VM "HermesJarvis"   │        │  100.113.214.111 (Tailscale)  │
+│  aarch64 · ไม่มี GPU           │        │  2× RTX PRO 4000 Blackwell   │
 │                               │        │                              │
 │  ┌─────────────────────────┐  │  HTTP  │  ┌────────────────────────┐  │
 │  │ voice pipeline server   │──┼───────►│  │ STT :8768              │  │
@@ -104,32 +104,61 @@ systemd service แล้วพิมพ์ค่าที่ต้องเอ�
 
 ```bash
 git clone https://github.com/neronain/Jarvis-hermes.git && cd Jarvis-hermes
-./scripts/deploy-gpu-node.sh neronain@100.84.136.110
+./scripts/deploy-gpu-node.sh neronain@100.113.214.111
 ```
 
 ### 2. ตั้งค่าฝั่ง host
 
-```bash
-cp host/config/server.example.yaml <jarvis_ai>/server/config/server.yaml
-cp host/adapters/f5_tts_provider.py <jarvis_ai>/server/
-```
-
-ใส่ token ลงใน `~/.hermes/.env` (ต้องตรงกับฝั่ง GPU node):
+ติดตั้ง [`jarvis_ai`](https://github.com/eadmin2/jarvis_ai) ก่อน แล้ววางส่วนของ repo นี้ทับ
 
 ```bash
-JARVIS_STT_TOKEN=<ค่าเดียวกับบน node>
-JARVIS_TTS_TOKEN=<ค่าเดียวกับบน node>
-JARVIS_HUD_TOKEN=<token สำหรับเปิด HUD บนเบราว์เซอร์>
+JA=~/jarvis_ai
+
+# 1. adapter + config
+cp host/adapters/f5_tts_provider.py "$JA/server/"
+cp host/config/server.example.yaml  "$JA/server/config/server.yaml"
+$EDITOR "$JA/server/config/server.yaml"   # แก้ IP ของ GPU node + extra_origin_hosts
+
+# 2. ต่อ provider เข้ากับ voice server และทำให้ HUD อ่านค่าจริง (รันซ้ำได้)
+python host/patches/apply_f5_tts.py  "$JA"
+python host/patches/apply_hud_fixes.py "$JA"
+
+# 3. TLS — เบราว์เซอร์ให้สิทธิ์ไมค์เฉพาะ https
+./scripts/make-certs.sh "$JA"
+
+# 4. รันเป็น service
+./scripts/install-host-service.sh "$JA"
+systemctl --user enable --now jarvis-voice
+loginctl enable-linger "$USER"
 ```
 
-ขั้นตอนเต็มพร้อมการต่อเข้ากับ `jarvis_ai` ดู
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)
+**เปิด Hermes API** ใน `~/.hermes/.env` แล้ว restart gateway:
+
+```bash
+API_SERVER_ENABLED=true
+API_SERVER_KEY=<สุ่มมา>
+JARVIS_STT_TOKEN=<ค่าเดียวกับบน GPU node>
+JARVIS_TTS_TOKEN=<ค่าเดียวกับบน GPU node>
+```
+
+**สร้าง HUD token:** `./scripts/new-hud-token.sh`
+
+ขั้นตอนเต็ม ดู [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) · เรื่อง HUD โดยเฉพาะ
+ดู [`docs/HUD.md`](docs/HUD.md)
 
 ### 3. ตรวจว่าใช้งานได้
 
 ```bash
-./scripts/healthcheck.sh              # ทุกบริการขึ้นครบไหม
-./scripts/smoke-test.sh               # พูด → ถอดกลับ → เทียบข้อความ
+./scripts/healthcheck.sh 100.113.214.111   # sidecar ขึ้นครบไหม
+./scripts/smoke-test.sh  100.113.214.111   # พูด → ถอดกลับ → เทียบข้อความ
+```
+
+แล้วเปิด HUD: **https://\<voice-host\>:8766/hud/** (ใส่ token ครั้งเดียวต่อเครื่อง)
+
+เทสต์เต็มวงจากบรรทัดคำสั่ง:
+
+```bash
+cd "$JA" && .venv/bin/python server/scripts/ws_e2e_test.py test-16k-mono.wav
 ```
 
 ---
@@ -142,7 +171,7 @@ JARVIS_HUD_TOKEN=<token สำหรับเปิด HUD บนเบราว
 `jarvis_ai` ทุกประการ จึงใช้กับ voice server เดิมได้โดยไม่ต้องแก้
 
 ```bash
-curl -X POST http://100.84.136.110:8768/stt \
+curl -X POST http://100.113.214.111:8768/stt \
   -H "X-Jarvis-Token: $JARVIS_STT_TOKEN" \
   --data-binary @speech.pcm
 # {"text":"สวัสดีครับ","language":"th","duration":1.9,"latency":0.21}
@@ -151,7 +180,7 @@ curl -X POST http://100.84.136.110:8768/stt \
 ### TTS — `POST :8769/tts`
 
 ```bash
-curl -X POST http://100.84.136.110:8769/tts \
+curl -X POST http://100.113.214.111:8769/tts \
   -H "X-Jarvis-Token: $JARVIS_TTS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"text":"สวัสดีครับ ระบบพร้อมทำงาน","format":"wav"}' \
@@ -179,6 +208,7 @@ curl -X POST http://100.84.136.110:8769/tts \
 | [DEPLOYMENT](docs/DEPLOYMENT.md) | ติดตั้งจากศูนย์ทั้งสองฝั่ง + ต่อกับ `jarvis_ai` |
 | [THAI-TTS](docs/THAI-TTS.md) | F5-TTS-TH, การทำเสียงอ้างอิง, การจูนคุณภาพ |
 | [CONFIGURATION](docs/CONFIGURATION.md) | ตัวแปรทุกตัวและผลของมัน |
+| [HUD](docs/HUD.md) | เข้าหน้าจอ, token, origin allowlist, แต่ละแผงอ่านค่าจากไหน |
 | [PERFORMANCE](docs/PERFORMANCE.md) | ตัวเลขที่วัดจริง และคอขวดอยู่ตรงไหน |
 | [OPERATIONS](docs/OPERATIONS.md) | runbook: ดู log, restart, อัปเดต, สำรอง |
 | [TROUBLESHOOTING](docs/TROUBLESHOOTING.md) | อาการ → สาเหตุ → วิธีแก้ |
@@ -197,6 +227,8 @@ curl -X POST http://100.84.136.110:8769/tts \
 | Host adapter (แทน ElevenLabs) | ✅ **ต่อเข้า `jarvis_ai` แล้ว รันจริง** |
 | Voice server + Hermes API | ✅ รันเป็น systemd service |
 | พูดไทย → agent เรียก tool → ตอบเป็นเสียงไทย | ✅ **ผ่าน** |
+| HUD บนเบราว์เซอร์ | ✅ **คุยได้จริงแล้ว** |
+| แผง MODELS LOADOUT อ่านค่าจริง | ✅ ไม่ใช่ค่าตายตัวของ upstream อีกต่อไป |
 | เสียงอ้างอิงของจริง | ⏳ ตอนนี้ใช้เสียงตัวอย่างจากผู้พัฒนา F5-TTS-THAI |
 | Streaming TTS แบบคำต่อคำ | 📋 ยังไม่ทำ (ตอนนี้แบ่งเป็นประโยค) |
 | Wake word ("จาร์วิส") | 📋 ยังไม่ทำ |

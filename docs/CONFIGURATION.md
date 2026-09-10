@@ -85,8 +85,8 @@ stt:
   model: small              # fallback บน CPU ของ host
   language: th
   remote:
-    name: msi-4
-    url: http://100.84.136.110:8768/stt
+    name: rtx4000
+    url: http://100.113.214.111:8768/stt
     token_env: JARVIS_STT_TOKEN
     timeout: 6              # เกินนี้ตกไปใช้ local
 ```
@@ -99,8 +99,8 @@ stt:
 ```yaml
 voice:
   provider: f5_tts_th
-  url: http://100.84.136.110:8769
-  voice_name: jarvis        # ต้องมีใน voices.yaml ของ node
+  url: http://100.113.214.111:8769
+  voice_name: sample_th     # ต้องมีใน voices.yaml ของ node
   token_env: JARVIS_TTS_TOKEN
   speed: 1.0
   step: 32
@@ -108,6 +108,27 @@ voice:
   timeout: 30               # ต่อ 1 ประโยค ไม่ใช่ทั้งคำตอบ
   sample_rate: 16000        # ต้องตรงกับ JARVIS_TTS_PCM_RATE
 ```
+
+### `security` และ `server`
+
+```yaml
+security:
+  hud_token_env: JARVIS_HUD_TOKEN
+  # จำเป็นเมื่อเปิด HUD ด้วย LAN IP — ไม่ใส่ = socket หลุดตลอด
+  extra_origin_hosts: ["192.168.139.181", "hermesjarvis.orb.local"]
+
+server:
+  local_name: "HERMES · ORB VM"   # ชื่อที่โชว์ในแผง MACHINES
+  tls_ports: [8766]
+  tls_cert: certs/cert.pem        # resolve เทียบ server/ ไม่ใช่ root ของ repo
+  tls_key: certs/key.pem
+```
+
+| คีย์ | ผลเมื่อไม่ตั้ง |
+|---|---|
+| `security.extra_origin_hosts` | HUD บน LAN IP ต่อ WebSocket ไม่ได้เลย ([ทำไม](HUD.md#origin-allowlist--ด่านที่คนติดกันมากที่สุด)) |
+| `server.local_name` | แผง MACHINES ขึ้น `<HOSTNAME> · HERMES` |
+| `server.tls_cert` ผิด path | พอร์ต https ไม่เปิดแบบเงียบ ๆ ไมค์ใช้ไม่ได้ |
 
 ### `hermes.instructions`
 

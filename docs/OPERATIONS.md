@@ -1,19 +1,73 @@
 # คู่มือปฏิบัติการ
 
+## บริการทั้งหมดในระบบ
+
+| เครื่อง | service | พอร์ต |
+|---|---|---|
+| `rtx4000` | `jarvis-stt` | 8768 |
+| `rtx4000` | `jarvis-tts` | 8769 |
+| `rtx4000` | `jarvis-stats` | 8767 |
+| `HermesJarvis` | `jarvis-voice` | 8765 (ws) · 8766 (wss+HUD) · 9443 (dashboard proxy) |
+| `HermesJarvis` | `hermes-gateway` | 8642 (Hermes API) |
+
+ทุกตัวเป็น systemd **user** service และเปิด linger ไว้แล้ว จึงรอด reboot และ logout
+
 ## คำสั่งประจำวัน
 
 ```bash
-# สถานะทั้งระบบ
-./scripts/healthcheck.sh
+# สถานะ GPU node
+./scripts/healthcheck.sh 100.113.214.111
 
-# ทดสอบว่าพูดและฟังได้จริง
-./scripts/smoke-test.sh
+# ทดสอบว่าพูดและฟังได้จริง (STT + TTS)
+./scripts/smoke-test.sh 100.113.214.111
 ```
+
+### ทดสอบเต็มวง (บน voice host)
+
+```bash
+ssh <voice-host>
+cd ~/jarvis_ai && set -a && . ~/.hermes/.env && set +a
+.venv/bin/python server/scripts/ws_e2e_test.py /path/to/16k-mono.wav
+```
+
+พิมพ์ทุก event ตั้งแต่ transcript, tool ที่ agent เรียก, คำตอบ จนถึงจำนวน byte
+ของเสียงที่ส่งกลับ — เป็นวิธีที่เร็วที่สุดในการดูว่าพังตรงไหน
+
+ไม่มีไฟล์เสียงทดสอบ? สร้างจาก TTS ของเราเองได้:
+
+```bash
+curl -s http://100.113.214.111:8769/tts \
+  -H "X-Jarvis-Token: $JARVIS_TTS_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"text":"ตอนนี้เวลาเท่าไหร่ครับ","format":"pcm16"}' --output cmd.pcm
+python3 -c "
+import wave; p=open('cmd.pcm','rb').read()
+w=wave.open('cmd.wav','wb'); w.setnchannels(1); w.setsampwidth(2)
+w.setframerate(16000); w.writeframes(p); w.close()"
+```
+
+## จัดการ voice server (host)
+
+```bash
+systemctl --user status  jarvis-voice
+systemctl --user restart jarvis-voice
+journalctl --user -u jarvis-voice -f
+```
+
+การ start ใช้เวลา ~30 วินาที (โหลดโมเดล STT สำรองบน CPU) · รอข้อความ
+`STT pipeline warmed.` ก่อนถือว่าพร้อม
+
+### หมุน HUD token
+
+```bash
+./scripts/new-hud-token.sh     # สร้างใหม่ + เขียน .env + restart ให้เอง
+```
+
+ทุกเครื่องที่เคยเข้าจะต้องใส่ token ใหม่อีกครั้ง
 
 ## จัดการบริการบน GPU node
 
 ```bash
-ssh msi-4
+ssh rtx4000
 
 systemctl --user status  jarvis-stt jarvis-tts jarvis-stats
 systemctl --user restart jarvis-tts
@@ -35,7 +89,7 @@ journalctl --user -u jarvis-tts -p err --since today
 ## ดูภาระของเครื่อง
 
 ```bash
-curl -s http://100.84.136.110:8767/stats | python3 -m json.tool
+curl -s http://100.113.214.111:8767/stats | python3 -m json.tool
 watch -n2 nvidia-smi
 ```
 
@@ -46,7 +100,7 @@ watch -n2 nvidia-smi
 ## ดูสถิติการใช้งาน
 
 ```bash
-curl -s http://100.84.136.110:8769/health | python3 -m json.tool
+curl -s http://100.113.214.111:8769/health | python3 -m json.tool
 ```
 
 ```json
@@ -63,10 +117,10 @@ curl -s http://100.84.136.110:8769/health | python3 -m json.tool
 ```bash
 # ฝั่ง dev
 git pull
-./scripts/deploy-gpu-node.sh msi-4     # rsync + install.sh ใหม่
+./scripts/deploy-gpu-node.sh rtx4000     # rsync + install.sh ใหม่
 
 # บน node
-ssh msi-4
+ssh rtx4000
 systemctl --user restart jarvis-stt jarvis-tts jarvis-stats
 ```
 
@@ -76,8 +130,8 @@ systemctl --user restart jarvis-stt jarvis-tts jarvis-stats
 ### เปลี่ยนโมเดล
 
 ```bash
-ssh msi-4 'cd ~/jarvis-gpu-node && sed -i "s/^JARVIS_STT_MODEL=.*/JARVIS_STT_MODEL=large-v3-turbo/" .env'
-ssh msi-4 'systemctl --user restart jarvis-stt'
+ssh rtx4000 'cd ~/jarvis-gpu-node && sed -i "s/^JARVIS_STT_MODEL=.*/JARVIS_STT_MODEL=large-v3-turbo/" .env'
+ssh rtx4000 'systemctl --user restart jarvis-stt'
 ```
 
 น้ำหนักโมเดลใหม่จะถูกดาวน์โหลดตอน start ครั้งแรก ซึ่งอาจใช้เวลาหลายนาที —
@@ -94,7 +148,7 @@ ssh msi-4 'systemctl --user restart jarvis-stt'
 | `.env` — token | |
 
 ```bash
-ssh msi-4 'tar czf - -C ~/jarvis-gpu-node voices voices.yaml .env' \
+ssh rtx4000 'tar czf - -C ~/jarvis-gpu-node voices voices.yaml .env' \
   > jarvis-node-backup-$(date +%Y%m%d).tar.gz
 ```
 
@@ -120,7 +174,7 @@ ssh msi-4 'tar czf - -C ~/jarvis-gpu-node voices voices.yaml .env' \
 
 ```bash
 ./scripts/healthcheck.sh                                    # ทุกอย่างขึ้น
-curl -s http://100.84.136.110:8769/health | grep errors     # error สะสมเพิ่มไหม
-ssh msi-4 'df -h ~ | tail -1'                               # ดิสก์เหลือพอไหม
-ssh msi-4 'journalctl --user -u jarvis-tts -p err --since "7 days ago" | tail'
+curl -s http://100.113.214.111:8769/health | grep errors     # error สะสมเพิ่มไหม
+ssh rtx4000 'df -h ~ | tail -1'                               # ดิสก์เหลือพอไหม
+ssh rtx4000 'journalctl --user -u jarvis-tts -p err --since "7 days ago" | tail'
 ```

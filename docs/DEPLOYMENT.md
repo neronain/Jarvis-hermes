@@ -7,14 +7,18 @@ voice host, และการต่อทั้งสองเข้าด้�
 
 | บทบาท | เครื่อง | ที่อยู่ | หมายเหตุ |
 |---|---|---|---|
-| GPU node (หลัก) | `dgx-msi-04` | `100.84.136.110` (Tailscale) | NVIDIA CUDA — รัน STT + TTS |
-| GPU node (สำรอง) | `rtx4000` | `100.113.214.111` (Tailscale) / `192.168.10.41` (LAN) | ใช้แทนได้ทั้งดุ้น |
-| Voice host | OrbStack VM `HermesJarvis` | `192.168.139.181` | Ubuntu questing `aarch64` ไม่มี GPU |
+| **GPU node** (ใช้งานจริง) | `rtx4000` | `100.113.214.111` (Tailscale) · `192.168.10.41` (LAN) | 2× RTX PRO 4000 Blackwell 24 GB · x86_64 |
+| GPU node (ทางเลือก) | `dgx-msi-04` | `100.84.136.110` (Tailscale) | GB10 `aarch64` · GPU ถูกใช้อยู่แล้ว |
+| **Voice host** | OrbStack VM `HermesJarvis` | `192.168.139.181` | Ubuntu `aarch64` ไม่มี GPU |
 | Agent | เดียวกับ voice host | `127.0.0.1:8642` | Hermes Agent v0.20.5 |
+| HUD | เดียวกับ voice host | `https://192.168.139.181:8766/hud/` | ต้องเป็น https |
 
-**ที่ deploy จริงอยู่ตอนนี้คือ `rtx4000`** เพราะ GPU ของ msi-4 ถูก
-`llama-server` จองไว้ 32.7 GB อยู่แล้ว ส่วน rtx4000 ว่างสนิทและเป็น x86_64
-ซึ่ง wheel มาตรฐานรองรับตรง ๆ (msi-4 เป็น GB10 aarch64)
+**ทำไมเลือก `rtx4000` ไม่ใช่ `msi-4`** — GPU ของ msi-4 มี `llama-server` จองไว้
+32.7 GB อยู่แล้ว ส่วน rtx4000 ว่างสนิท · และ rtx4000 เป็น x86_64 ซึ่งใช้ wheel
+มาตรฐานได้ตรง ๆ ขณะที่ msi-4 เป็น GB10 `aarch64` ที่ต้องใช้ wheel คนละชุด
+
+> ทั้งคู่เป็น **Blackwell** (sm_120 / sm_121) ซึ่งต้องใช้ torch `cu128` ขึ้นไป —
+> `install.sh` เลือกให้เองจาก compute capability ไม่ต้องตั้งเอง
 
 sidecar ไม่ผูกกับเครื่องใดเครื่องหนึ่ง — ย้าย node ได้โดยแก้ที่เดียวคือ
 `stt.remote.url` กับ `voice.url` ใน `server.yaml` และจะแยก STT กับ TTS ไปคนละ
@@ -32,27 +36,30 @@ sidecar ไม่ผูกกับเครื่องใดเครื่อ
 
 ```bash
 ssh-keygen -t ed25519 -f ~/.ssh/id_jarvis_gpu -N "" -C "jarvis-deploy"
-ssh-copy-id -i ~/.ssh/id_jarvis_gpu.pub neronain@100.84.136.110
-ssh-copy-id -i ~/.ssh/id_jarvis_gpu.pub neronain@100.113.214.111   # เครื่องสำรอง
+ssh-copy-id -i ~/.ssh/id_jarvis_gpu.pub neronain@100.113.214.111   # rtx4000
+ssh-copy-id -i ~/.ssh/id_jarvis_gpu.pub neronain@100.84.136.110    # msi-4 (ถ้าจะใช้)
 ```
 
 แล้วเพิ่มลง `~/.ssh/config`:
 
 ```
-Host msi-4
-    HostName 100.84.136.110
-    User neronain
-    IdentityFile ~/.ssh/id_jarvis_gpu
-    IdentitiesOnly yes
-
 Host rtx4000
     HostName 100.113.214.111
     User neronain
     IdentityFile ~/.ssh/id_jarvis_gpu
     IdentitiesOnly yes
+
+Host msi-4
+    HostName 100.84.136.110
+    User neronain
+    IdentityFile ~/.ssh/id_jarvis_gpu
+    IdentitiesOnly yes
 ```
 
-ทดสอบ: `ssh msi-4 nvidia-smi`
+ทดสอบ: `ssh rtx4000 nvidia-smi`
+
+> **ถ้าใช้ LMDS อยู่แล้ว ไม่ต้องทำขั้นนี้** — LMDS ติดตั้ง key ของตัวเองไว้บน
+> ทุกเครื่องในฟลีตแล้ว ใช้ `-i ~/.config/lmds/id_lmds` จาก hub ได้เลย
 
 > `ssh-copy-id` ต้องพิมพ์รหัสผ่านครั้งเดียว หลังจากนั้นใช้ key ตลอด —
 > `deploy-gpu-node.sh` ใช้ `BatchMode=yes` จึงไม่รับรหัสผ่านโดยเจตนา
@@ -64,7 +71,7 @@ Host rtx4000
 ### ตรวจความพร้อม
 
 ```bash
-ssh msi-4
+ssh rtx4000
 nvidia-smi                    # ต้องเห็น GPU และ driver version
 python3 -V                    # ต้อง 3.10+
 nvidia-smi --query-gpu=memory.total --format=csv
@@ -84,7 +91,7 @@ nvidia-smi --query-gpu=memory.total --format=csv
 
 ```bash
 # จากเครื่อง dev — เปลี่ยน msi-4 เป็น rtx4000 ได้ถ้าใช้เครื่องสำรอง
-./scripts/deploy-gpu-node.sh msi-4
+./scripts/deploy-gpu-node.sh rtx4000
 
 # หรือบน node โดยตรง
 git clone https://github.com/neronain/Jarvis-hermes.git
@@ -159,7 +166,7 @@ pip install -r requirements.txt        # ตามที่ upstream กำห�
 JH=/path/to/Jarvis-hermes
 cp "$JH/host/adapters/f5_tts_provider.py" server/
 cp "$JH/host/config/server.example.yaml" server/config/server.yaml
-$EDITOR server/config/server.yaml       # แก้ IP ของ GPU node ถ้าไม่ใช่ 100.84.136.110
+$EDITOR server/config/server.yaml       # แก้ IP ของ GPU node ถ้าไม่ใช่ 100.113.214.111
 ```
 
 ### ต่อ provider เข้ากับ voice server
@@ -233,8 +240,8 @@ JARVIS_HUD_TOKEN=<token สำหรับเบราว์เซอร์>
 
 ```bash
 cd /path/to/Jarvis-hermes
-./scripts/healthcheck.sh 100.84.136.110
-./scripts/smoke-test.sh  100.84.136.110
+./scripts/healthcheck.sh 100.113.214.111
+./scripts/smoke-test.sh  100.113.214.111
 ```
 
 `smoke-test.sh` สังเคราะห์ประโยคไทย ส่งกลับไปให้ STT ถอด แล้วเทียบตัวอักษร

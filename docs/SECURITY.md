@@ -34,8 +34,8 @@ tailnet หรือ LAN
 ให้ผูกกับ tailnet address โดยตรง:
 
 ```bash
-JARVIS_STT_HOST=100.84.136.110
-JARVIS_TTS_HOST=100.84.136.110
+JARVIS_STT_HOST=100.113.214.111
+JARVIS_TTS_HOST=100.113.214.111
 ```
 
 หรือกันด้วย firewall:
