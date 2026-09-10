@@ -66,6 +66,19 @@ DEFAULT_SPEED = float(os.environ.get("JARVIS_TTS_SPEED", "1.0"))
 # adding a second, worse split inside each sentence.
 DEFAULT_MAX_CHARS = int(os.environ.get("JARVIS_TTS_MAX_CHARS", "250"))
 
+# F5-TTS pads every utterance with silence at both ends — measured at 0.16-0.50 s
+# leading and 0.04-0.32 s trailing. Harmless for one clip, but the pipeline
+# synthesises sentence by sentence, so each join stacks a leading pad onto a
+# trailing one: ~0.6 s of dead air between every sentence, which is exactly the
+# halting delivery the voice is meant to avoid. Trim it here and let the caller
+# insert one deliberate pause instead of inheriting an accidental one.
+TRIM_SILENCE = os.environ.get("JARVIS_TTS_TRIM", "1") == "1"
+TRIM_FLOOR_DB = float(os.environ.get("JARVIS_TTS_TRIM_DB", "-42"))
+TRIM_KEEP_MS = float(os.environ.get("JARVIS_TTS_KEEP_MS", "25"))
+# Per-sentence peak also drifts (0.81-0.97 across three sentences), which reads
+# as the voice changing distance mid-reply. 0 disables.
+NORMALIZE_PEAK = float(os.environ.get("JARVIS_TTS_NORMALIZE", "0.9"))
+
 # One model, one GPU: serialise inference so concurrent HUD requests queue
 # instead of racing for VRAM.
 _infer_lock = threading.Lock()
@@ -177,6 +190,51 @@ def _warmup() -> None:
         LOG.exception("warmup failed (serving anyway)")
 
 
+def _trim_silence(wav: np.ndarray, rate: int) -> np.ndarray:
+    """Drop the model's leading/trailing padding, keeping a short margin.
+
+    Uses a 20 ms RMS envelope against a floor relative to the clip's own peak,
+    so a quiet sentence isn't trimmed into its own speech. ``TRIM_KEEP_MS`` of
+    padding stays on each side: cutting flush to the first sample of speech
+    clips plosives and sounds worse than the silence did.
+    """
+    arr = np.asarray(wav, dtype=np.float32).reshape(-1)
+    if arr.size == 0:
+        return arr
+    win = max(1, int(0.02 * rate))
+    n = arr.size // win
+    if n < 2:
+        return arr
+    rms = np.sqrt((arr[: n * win].reshape(n, win) ** 2).mean(axis=1))
+    peak = float(rms.max())
+    if peak <= 0:
+        return arr
+    floor = peak * (10.0 ** (TRIM_FLOOR_DB / 20.0))
+    voiced = np.flatnonzero(rms >= floor)
+    if voiced.size == 0:
+        return arr
+    keep = int(TRIM_KEEP_MS / 1000.0 * rate)
+    start = max(0, voiced[0] * win - keep)
+    end = min(arr.size, (voiced[-1] + 1) * win + keep)
+    return arr[start:end]
+
+
+def _normalize(wav: np.ndarray) -> np.ndarray:
+    """Bring each sentence to the same peak so loudness doesn't drift mid-reply."""
+    arr = np.asarray(wav, dtype=np.float32).reshape(-1)
+    if not NORMALIZE_PEAK or arr.size == 0:
+        return arr
+    peak = float(np.abs(arr).max())
+    if peak < 1e-6:
+        return arr
+    return arr * (NORMALIZE_PEAK / peak)
+
+
+def _post_process(wav: np.ndarray, rate: int) -> np.ndarray:
+    out = _trim_silence(wav, rate) if TRIM_SILENCE else np.asarray(wav, dtype=np.float32).reshape(-1)
+    return _normalize(out)
+
+
 def _to_wav_bytes(wav: np.ndarray, rate: int) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
@@ -258,6 +316,8 @@ async def health() -> dict:
         "model": f"F5-TTS-TH-{MODEL_VERSION}",
         "device": "cuda",
         "max_chars": DEFAULT_MAX_CHARS,
+        "trim_silence": TRIM_SILENCE,
+        "normalize_peak": NORMALIZE_PEAK,
         "native_rate": NATIVE_RATE,
         "pcm_rate": PCM_RATE,
         "voices": sorted(_voices),
@@ -332,14 +392,18 @@ async def tts(request: Request):
     _stats["chars"] += len(text)
     _stats["total_seconds"] += elapsed
 
-    arr = np.asarray(wav, dtype=np.float32).reshape(-1)
+    raw = np.asarray(wav, dtype=np.float32).reshape(-1)
+    arr = _post_process(raw, NATIVE_RATE)
+    trimmed = (raw.size - arr.size) / float(NATIVE_RATE)
     audio_seconds = arr.size / float(NATIVE_RATE) if arr.size else 0.0
     headers = {
         "X-Jarvis-Latency": f"{elapsed:.3f}",
         "X-Jarvis-Audio-Seconds": f"{audio_seconds:.3f}",
         "X-Jarvis-Voice": voice_name,
+        "X-Jarvis-Trimmed": f"{trimmed:.3f}",
     }
-    LOG.info("tts voice=%s chars=%d %.2fs audio in %.2fs", voice_name, len(text), audio_seconds, elapsed)
+    LOG.info("tts voice=%s chars=%d %.2fs audio (trimmed %.2fs) in %.2fs",
+             voice_name, len(text), audio_seconds, trimmed, elapsed)
 
     if fmt == "pcm16":
         pcm = _to_int16(_resample(arr, NATIVE_RATE, PCM_RATE)).tobytes()

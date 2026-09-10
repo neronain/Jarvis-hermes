@@ -254,7 +254,7 @@ class TestProviderConfig:
 
     def test_a_failing_sentence_does_not_kill_the_stream(self, monkeypatch):
         """One bad sentence should cost one sentence, not the whole reply."""
-        p = provider.F5TTSProvider(url="http://n")
+        p = provider.F5TTSProvider(url="http://n", pause_ms=0)
         calls = []
 
         def fake(text):
@@ -267,6 +267,84 @@ class TestProviderConfig:
         out = list(p.stream("one. boom. three."))
         assert len(calls) == 3        # all three attempted
         assert out == [b"\x01\x02", b"\x01\x02"]   # two survived
+
+    def test_pause_goes_between_sentences_not_after(self, monkeypatch):
+        """A trailing pause would delay the end of every turn for no reason."""
+        p = provider.F5TTSProvider(url="http://n", pause_ms=100, sample_rate=16000)
+        monkeypatch.setattr(p, "synthesize", lambda t: b"\x01\x02")
+        out = list(p.stream("one. two. three."))
+        assert len(out) == 5                       # audio, pause, audio, pause, audio
+        assert out[0] == out[2] == out[4] == b"\x01\x02"
+        assert out[1] == out[3] == b"\x00\x00" * 1600   # 100 ms at 16 kHz
+        assert out[-1] != out[1], "must not end on a pause"
+
+    def test_a_skipped_sentence_does_not_leave_a_double_pause(self, monkeypatch):
+        p = provider.F5TTSProvider(url="http://n", pause_ms=100, sample_rate=16000)
+
+        def fake(text):
+            if "boom" in text:
+                raise RuntimeError("TTS 500")
+            return b"\x01\x02"
+
+        monkeypatch.setattr(p, "synthesize", fake)
+        out = list(p.stream("one. boom. three."))
+        assert out == [b"\x01\x02", b"\x00\x00" * 1600, b"\x01\x02"]
+
+    def test_pause_disabled_yields_only_audio(self, monkeypatch):
+        p = provider.F5TTSProvider(url="http://n", pause_ms=0)
+        monkeypatch.setattr(p, "synthesize", lambda t: b"\x01\x02")
+        assert list(p.stream("one. two.")) == [b"\x01\x02", b"\x01\x02"]
+
+
+# --------------------------------------------------------------------------
+# silence trimming + level normalisation
+# --------------------------------------------------------------------------
+
+class TestPostProcess:
+    """The model pads every utterance; concatenating sentences stacks the pads."""
+
+    def _clip(self, sr=24000, lead=0.4, body=0.5, trail=0.3, amp=0.8):
+        t = np.arange(int(body * sr)) / sr
+        speech = (amp * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
+        return np.concatenate([
+            np.zeros(int(lead * sr), dtype=np.float32),
+            speech,
+            np.zeros(int(trail * sr), dtype=np.float32),
+        ])
+
+    def test_padding_is_removed(self):
+        sr = 24000
+        out = tts._trim_silence(self._clip(sr), sr)
+        # 0.5s of speech plus the keep margin on each side, nothing like 1.2s
+        assert 0.5 <= out.size / sr <= 0.5 + 2 * (tts.TRIM_KEEP_MS / 1000) + 0.05
+
+    def test_speech_itself_survives(self):
+        sr = 24000
+        out = tts._trim_silence(self._clip(sr), sr)
+        assert np.abs(out).max() > 0.7, "trimmed into the speech"
+
+    def test_a_quiet_clip_is_not_trimmed_to_nothing(self):
+        """The floor is relative to the clip's own peak, not an absolute level."""
+        sr = 24000
+        out = tts._trim_silence(self._clip(sr, amp=0.05), sr)
+        assert out.size / sr > 0.4
+
+    def test_silence_only_input_is_returned_untouched(self):
+        sr = 24000
+        arr = np.zeros(sr, dtype=np.float32)
+        assert tts._trim_silence(arr, sr).size == arr.size
+
+    def test_empty_input_is_safe(self):
+        assert tts._trim_silence(np.array([], dtype=np.float32), 24000).size == 0
+
+    def test_normalise_brings_sentences_to_one_level(self):
+        loud = tts._normalize(np.array([0.95, -0.95], dtype=np.float32))
+        quiet = tts._normalize(np.array([0.20, -0.20], dtype=np.float32))
+        assert abs(float(np.abs(loud).max()) - float(np.abs(quiet).max())) < 1e-5
+
+    def test_normalise_leaves_headroom(self):
+        out = tts._normalize(np.array([1.0, -1.0], dtype=np.float32))
+        assert float(np.abs(out).max()) <= 1.0
 
 
 # --------------------------------------------------------------------------

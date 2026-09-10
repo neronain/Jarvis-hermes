@@ -67,6 +67,10 @@ class F5TTSProvider:
     timeout: float = 30.0
     sample_rate: int = 16000
     max_chars: int = 220
+    # The sidecar now trims the model's own padding, so sentences would butt
+    # straight against each other. A deliberate gap here reads as punctuation;
+    # inheriting the model's ~0.6 s of accidental padding read as hesitation.
+    pause_ms: int = 140
     session: requests.Session = field(default_factory=requests.Session, repr=False)
 
     @classmethod
@@ -82,6 +86,7 @@ class F5TTSProvider:
             voice=str(voice_cfg.get("voice_name") or "jarvis"),
             token=os.environ.get(token_env, ""),
             speed=float(voice_cfg.get("speed", 1.0)),
+            pause_ms=int(voice_cfg.get("pause_ms", 140)),
             step=int(voice_cfg.get("step", 32)),
             cfg=float(voice_cfg.get("cfg", 2.0)),
             timeout=float(voice_cfg.get("timeout", 30)),
@@ -125,17 +130,28 @@ class F5TTSProvider:
 
     # -- pipeline API ------------------------------------------------------
 
+    def _pause(self) -> bytes:
+        """A gap between sentences, as int16 silence at the pipeline's rate."""
+        return b"\x00\x00" * int(self.sample_rate * self.pause_ms / 1000)
+
     def stream(self, text: str) -> Iterator[bytes]:
         """Yield PCM per sentence so the HUD can start playing immediately.
 
         A failed sentence is logged and skipped rather than killing the whole
-        reply — losing one sentence beats losing the turn.
+        reply — losing one sentence beats losing the turn. The pause goes
+        *between* sentences only: a trailing one would delay the turn ending.
         """
+        first = True
         for chunk in split_sentences(text, self.max_chars):
             try:
-                yield self.synthesize(chunk)
+                audio = self.synthesize(chunk)
             except Exception:
                 LOG.exception("sentence failed, skipping: %r", chunk[:60])
+                continue
+            if not first and self.pause_ms > 0:
+                yield self._pause()
+            yield audio
+            first = False
 
     def to_wav(self, text: str, path: str) -> None:
         pcm = b"".join(self.stream(text))
