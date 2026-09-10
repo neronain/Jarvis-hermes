@@ -147,6 +147,15 @@ log "installing sidecar dependencies"
 pip_install -r "$HERE/requirements.txt"
 
 # --- config ----------------------------------------------------------------
+# systemd's EnvironmentFile= keeps everything after "=", trailing comment
+# included, so `JARVIS_STT_COMPUTE=float16  # note` reaches ctranslate2 verbatim
+# and it rejects the compute type. Catch it here rather than in a stack trace.
+if [[ -f "$HERE/.env" ]] && grep -qE '^[A-Z_]+=[^#]*[^ ]+[[:space:]]+#' "$HERE/.env"; then
+  warn "these .env lines have trailing comments, which systemd treats as part of the value:"
+  grep -nE '^[A-Z_]+=[^#]*[^ ]+[[:space:]]+#' "$HERE/.env" | sed 's/^/    /'
+  warn "move each comment onto its own line before starting the services"
+fi
+
 if [[ ! -f "$HERE/voices.yaml" ]]; then
   cp "$HERE/voices.example.yaml" "$HERE/voices.yaml"
   warn "created voices.yaml from the example — add a reference clip before starting the TTS sidecar"
