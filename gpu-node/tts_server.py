@@ -35,6 +35,7 @@ import re
 import threading
 import time
 import wave
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -192,16 +193,17 @@ def split_sentences(text: str, max_chars: int = 220) -> List[str]:
     return chunks
 
 
-app = FastAPI(title="Jarvis Thai TTS (F5-TTS-TH)", version="1.0.0")
-
-
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     _load_voices()
     _load_model()
     if os.environ.get("JARVIS_TTS_WARMUP", "1") == "1":
         _warmup()
+    yield
+
+
+app = FastAPI(title="Jarvis Thai TTS (F5-TTS-TH)", version="1.0.0", lifespan=_lifespan)
 
 
 def _authorised(request: Request) -> bool:

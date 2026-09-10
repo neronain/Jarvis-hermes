@@ -37,3 +37,4 @@ jarvis-node-backup-*.tar.gz
 .DS_Store
 .idea/
 .vscode/
+.venv-test/

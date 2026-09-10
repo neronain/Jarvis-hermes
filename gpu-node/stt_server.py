@@ -24,6 +24,7 @@ import logging
 import os
 import threading
 import time
+from contextlib import asynccontextmanager
 
 import numpy as np
 import uvicorn
@@ -49,11 +50,9 @@ _model = None
 _lock = threading.Lock()
 _stats = {"requests": 0, "errors": 0, "audio_seconds": 0.0, "decode_seconds": 0.0}
 
-app = FastAPI(title="Jarvis GPU STT (faster-whisper)", version="1.0.0")
 
-
-@app.on_event("startup")
-def _startup() -> None:
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
     global _model
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     from faster_whisper import WhisperModel
@@ -72,6 +71,10 @@ def _startup() -> None:
             LOG.info("warmup complete")
         except Exception:
             LOG.exception("warmup failed (serving anyway)")
+    yield
+
+
+app = FastAPI(title="Jarvis GPU STT (faster-whisper)", version="1.0.0", lifespan=_lifespan)
 
 
 def _authorised(request: Request) -> bool:

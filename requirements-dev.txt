@@ -1,0 +1,8 @@
+# Dev/test dependencies. The GPU sidecars' own runtime deps are in
+# gpu-node/requirements.txt — these are only what the CPU-only test suite needs.
+pytest>=8.0
+numpy>=1.26
+pyyaml>=6.0
+fastapi>=0.115
+uvicorn>=0.30
+requests>=2.31

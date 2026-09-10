@@ -18,6 +18,12 @@ jobs:
       - name: Compile all Python
         run: python -m compileall -q gpu-node host
 
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest tests/ -q
+
       - name: Check shell scripts parse
         run: |
           for f in scripts/*.sh gpu-node/*.sh; do
