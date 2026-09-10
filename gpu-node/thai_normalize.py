@@ -312,6 +312,24 @@ class ThaiNormalizer:
     def _handles(self, text: str) -> str:
         return self._HANDLE.sub(lambda m: "แอท " + self._spell_token(m.group(1)), text)
 
+    # "v9", "v2.1" — a version, not a word. A rule rather than lexicon entries
+    # because version numbers are unbounded. The digit requirement keeps it off
+    # names that merely start with v, like vSphere.
+    _VERSION = re.compile(r"\b[vV](\d+(?:\.\d+)*)\b")
+
+    def _versions(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            n = m.group(1)
+            spoken = (_decimal_to_thai(*n.split(".", 1)) if "." in n
+                      else num_to_thai(int(n)))
+            # "เวอร์ชัน v2.1" already says the word; adding it again reads as
+            # "version version two point one".
+            before = text[: m.start()].rstrip()
+            if before.endswith(("เวอร์ชัน", "รุ่น", "version", "Version")):
+                return spoken
+            return "เวอร์ชัน" + spoken
+        return self._VERSION.sub(repl, text)
+
     # A run of capitals is an acronym, not a word: CYN, GPU, ID, API.
     _ACRONYM = re.compile(r"\b[A-Z]{2,6}\b")
 
@@ -401,11 +419,15 @@ class ThaiNormalizer:
         text = self._times(text)
         text = self._apply(self._abbr_re, self.abbr, text)
         text = self._percent(text)        # before numbers, or the % is orphaned
+        text = self._versions(text)       # before numbers, or "v9" loses its v
         text = self._apply(self._word_re, self.words, text)
         text = self._acronyms(text)   # after the lexicon: GPU is known, CYN is not
         for sym, spoken in self.symbols.items():
             text = text.replace(sym, spoken)
         text = self._numbers(text)
+        # Stripping a marker can leave a space in front of punctuation, which
+        # reads as a pause before a comma that should not be there.
+        text = re.sub(r"\s+([,;?!])", r"\1", text)
         text = re.sub(r"\s{2,}", " ", text).strip()
         # "บริษัท CYN Communication (ซีวายเอ็น คอมมิวนิเคชั่น จำกัด)" normalises
         # to the same Thai phrase twice — the writer glossed the English for

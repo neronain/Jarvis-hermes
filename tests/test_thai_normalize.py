@@ -385,3 +385,30 @@ class TestThaiSpacing:
     def test_slash_between_thai_takes_no_spaces(self, th):
         """`การฟัง/การรับรู้` is one phrase; spaces would pause inside it."""
         assert th.normalize("ความสามารถในการฟัง/การรับรู้") == "ความสามารถในการฟังหรือการรับรู้"
+
+
+class TestVersions:
+    @pytest.fixture
+    def v(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {},
+            "words": {"VMware": "วีเอ็มแวร์", "vSphere": "วีสเฟียร์"}})
+
+    def test_a_version_number_is_spoken_as_one(self, v):
+        assert "เวอร์ชันเก้า" in v.normalize("ที่ใช้เลข v9 ครับ")
+
+    def test_dotted_versions(self, v):
+        assert "เวอร์ชันสองจุดหนึ่ง" in v.normalize("v2.1")
+
+    def test_the_word_is_not_repeated(self, v):
+        """`เวอร์ชัน v2.1` already says it once."""
+        assert v.normalize("เวอร์ชัน v2.1").count("เวอร์ชัน") == 1
+
+    def test_a_name_starting_with_v_is_not_a_version(self, v):
+        """vSphere must survive: the digit is what makes it a version."""
+        assert "วีสเฟียร์" in v.normalize("vSphere")
+        assert "เวอร์ชัน" not in v.normalize("vSphere")
+
+    def test_space_before_punctuation_is_removed(self, v):
+        """Stripping a marker can leave a pause in front of a comma."""
+        assert " ," not in v.normalize("vSphere, **ESXi** , หรือ")
