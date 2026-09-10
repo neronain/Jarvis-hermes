@@ -12,6 +12,10 @@ voice host, และการต่อทั้งสองเข้าด้�
 | Voice host | OrbStack VM `HermesJarvis` | `192.168.139.181` | Ubuntu questing `aarch64` ไม่มี GPU |
 | Agent | เดียวกับ voice host | `127.0.0.1:8642` | Hermes Agent v0.20.5 |
 
+**ที่ deploy จริงอยู่ตอนนี้คือ `rtx4000`** เพราะ GPU ของ msi-4 ถูก
+`llama-server` จองไว้ 32.7 GB อยู่แล้ว ส่วน rtx4000 ว่างสนิทและเป็น x86_64
+ซึ่ง wheel มาตรฐานรองรับตรง ๆ (msi-4 เป็น GB10 aarch64)
+
 sidecar ไม่ผูกกับเครื่องใดเครื่องหนึ่ง — ย้าย node ได้โดยแก้ที่เดียวคือ
 `stt.remote.url` กับ `voice.url` ใน `server.yaml` และจะแยก STT กับ TTS ไปคนละ
 เครื่องก็ได้ถ้า VRAM ไม่พอ
