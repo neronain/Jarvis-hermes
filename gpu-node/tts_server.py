@@ -78,11 +78,16 @@ TRIM_KEEP_MS = float(os.environ.get("JARVIS_TTS_KEEP_MS", "25"))
 # Per-sentence peak also drifts (0.81-0.97 across three sentences), which reads
 # as the voice changing distance mid-reply. 0 disables.
 NORMALIZE_PEAK = float(os.environ.get("JARVIS_TTS_NORMALIZE", "0.9"))
+# The model reads Thai well and reads glyphs badly: "23:45" comes out as one
+# five-digit number, "12 กม." as "สิบสองกลม". Rewriting to Thai words before
+# synthesis fixes that class of error without touching the model.
+NORMALIZE_TEXT = os.environ.get("JARVIS_TTS_NORMALIZE_TEXT", "1") == "1"
 
 # One model, one GPU: serialise inference so concurrent HUD requests queue
 # instead of racing for VRAM.
 _infer_lock = threading.Lock()
 _tts = None
+_normalizer = None
 _voices: Dict[str, Dict[str, Any]] = {}
 _default_voice = ""
 _stats = {"requests": 0, "chars": 0, "errors": 0, "total_seconds": 0.0}
@@ -158,6 +163,20 @@ def _ensure_audio_backend() -> None:
 
     torchaudio.load = _load
     LOG.info("torchaudio.load backed by soundfile (no torchcodec/FFmpeg on this node)")
+
+
+def _load_normalizer() -> None:
+    global _normalizer
+    if not NORMALIZE_TEXT:
+        return
+    try:
+        from thai_normalize import ThaiNormalizer
+        _normalizer = ThaiNormalizer()
+        LOG.info("thai text normalisation enabled")
+    except Exception:
+        # A missing lexicon must not take the voice down; raw text still speaks,
+        # just worse.
+        LOG.exception("could not load the Thai normaliser — serving raw text")
 
 
 def _load_model() -> None:
@@ -296,6 +315,7 @@ def split_sentences(text: str, max_chars: int = 220) -> List[str]:
 async def _lifespan(_app: FastAPI):
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     _load_voices()
+    _load_normalizer()
     _load_model()
     if os.environ.get("JARVIS_TTS_WARMUP", "1") == "1":
         _warmup()
@@ -316,6 +336,7 @@ async def health() -> dict:
         "model": f"F5-TTS-TH-{MODEL_VERSION}",
         "device": "cuda",
         "max_chars": DEFAULT_MAX_CHARS,
+        "normalize_text": _normalizer is not None,
         "trim_silence": TRIM_SILENCE,
         "normalize_peak": NORMALIZE_PEAK,
         "native_rate": NATIVE_RATE,
@@ -353,6 +374,14 @@ async def tts(request: Request):
     if not text:
         return JSONResponse(status_code=400, content={"error": "text is required"})
 
+    spoken = text
+    if _normalizer is not None and body.get("normalize", True):
+        try:
+            spoken = _normalizer.normalize(text)
+        except Exception:
+            LOG.exception("normalisation failed; speaking the raw text")
+            spoken = text
+
     voice_name = str(body.get("voice") or _default_voice)
     voice = _voices.get(voice_name)
     if voice is None:
@@ -376,7 +405,7 @@ async def tts(request: Request):
             wav = _tts.infer(
                 ref_audio=voice["ref_audio"],
                 ref_text=voice["ref_text"],
-                gen_text=text,
+                gen_text=spoken,
                 step=step,
                 cfg=cfg,
                 speed=speed,
@@ -401,6 +430,7 @@ async def tts(request: Request):
         "X-Jarvis-Audio-Seconds": f"{audio_seconds:.3f}",
         "X-Jarvis-Voice": voice_name,
         "X-Jarvis-Trimmed": f"{trimmed:.3f}",
+        "X-Jarvis-Normalized": "1" if spoken != text else "0",
     }
     LOG.info("tts voice=%s chars=%d %.2fs audio (trimmed %.2fs) in %.2fs",
              voice_name, len(text), audio_seconds, trimmed, elapsed)
@@ -412,6 +442,18 @@ async def tts(request: Request):
 
     headers["X-Jarvis-Sample-Rate"] = str(NATIVE_RATE)
     return Response(content=_to_wav_bytes(arr, NATIVE_RATE), media_type="audio/wav", headers=headers)
+
+
+@app.post("/normalize")
+async def normalize_text(request: Request):
+    """Show what the model will actually be asked to say. Debugging aid."""
+    if not _authorised(request):
+        return Response(status_code=401, content="auth required")
+    body = await request.json()
+    raw = str(body.get("text") or "")
+    if _normalizer is None:
+        return {"text": raw, "normalized": raw, "enabled": False}
+    return {"text": raw, "normalized": _normalizer.normalize(raw), "enabled": True}
 
 
 @app.post("/split")
