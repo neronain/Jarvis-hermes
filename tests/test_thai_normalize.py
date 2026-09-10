@@ -141,3 +141,120 @@ class TestRobustness:
         lex = tn.load_lexicon(tmp_path / "nope.yaml")
         assert lex == {"abbreviations": {}, "words": {}, "symbols": {}}
         assert tn.ThaiNormalizer(lexicon=lex).normalize("ทดสอบ") == "ทดสอบ"
+
+
+@pytest.fixture
+def biz():
+    """A lexicon shaped like the contact-details case that exposed these bugs."""
+    return tn.ThaiNormalizer(lexicon={
+        "abbreviations": {},
+        "symbols": {"@": " แอท "},
+        "words": {
+            "cyn": "ซีวายเอ็น", "group": "กรุ๊ป", "sale": "เซล",
+            "support": "ซัพพอร์ต", "info": "อินโฟ", "line": "ไลน์",
+            "communication": "คอมมิวนิเคชั่น", "admin": "แอดมิน",
+            "GPU": "จีพียู",
+        },
+    })
+
+
+class TestMarkdown:
+    """Agents emit markdown however firmly the prompt says not to."""
+
+    def test_bold_markers_are_removed(self, biz):
+        assert "*" not in biz.normalize("**เบอร์โทรศัพท์:** 02-437-1210")
+
+    def test_bullets_are_removed(self, biz):
+        assert biz.normalize("* รายการหนึ่ง").startswith("รายการหนึ่ง")
+
+    def test_unmatched_markers_are_swept(self, biz):
+        """A stray ** survives pair-matching and gets voiced as noise."""
+        assert "*" not in biz.normalize("ไลน์ ** ทดสอบ")
+
+    def test_link_text_survives_the_url(self, biz):
+        assert biz.normalize("[เว็บไซต์](https://x.com)") == "เว็บไซต์"
+
+    def test_colons_and_brackets_become_pauses(self, biz):
+        out = biz.normalize("อีเมล (Email): ทดสอบ")
+        assert ":" not in out and "(" not in out
+
+
+class TestPhoneNumbers:
+    def test_thai_landline_is_read_digit_by_digit(self, biz):
+        """02-437-1210 was read as three separate quantities."""
+        assert "ศูนย์สองสี่สามเจ็ดหนึ่งสองหนึ่งศูนย์" in biz.normalize("โทร 02-437-1210")
+
+    def test_the_leading_zero_survives(self, biz):
+        assert biz.normalize("081-234-5678").startswith("ศูนย์แปดหนึ่ง")
+
+    def test_unseparated_numbers_work_too(self, biz):
+        assert "ศูนย์แปดหนึ่ง" in biz.normalize("0812345678")
+
+    def test_a_price_is_not_mistaken_for_a_phone(self, biz):
+        assert "หนึ่งพันสองร้อยห้าสิบ" in biz.normalize("ราคา 1,250 บาท")
+
+
+class TestEmailsAndHandles:
+    def test_address_is_spelled_out(self, biz):
+        out = biz.normalize("info@cyn.co.th")
+        assert "อินโฟ" in out and "ซีวายเอ็น" in out and "ดอทซีโอดอททีเอช" in out
+
+    def test_a_bare_handle_is_not_treated_as_an_email(self, biz):
+        assert biz.normalize("@cyngroup") == "แอท ซีวายเอ็นกรุ๊ป"
+
+    def test_compound_handles_are_segmented(self, biz):
+        """Greedy matching takes 'sales' and then cannot place 'upport'."""
+        assert biz.normalize("@salesupport") == "แอท เซลซัพพอร์ต"
+
+    def test_unknown_short_token_is_spelled(self, biz):
+        assert biz.normalize("@abc") == "แอท เอบีซี"
+
+    def test_unknown_long_token_is_left_for_the_model(self, biz):
+        """example spelled out is อีเอ็กซ์เอเอ็มพีแอลอี — worse than a rough attempt."""
+        assert "example" in biz.normalize("admin@example.com")
+
+
+class TestAcronyms:
+    def test_unknown_capitals_are_spelled(self, biz):
+        assert "ซีวายเอ็น" in biz.normalize("บริษัท CYN")
+
+    def test_known_acronyms_use_the_lexicon(self, biz):
+        assert biz.normalize("GPU") == "จีพียู"
+
+    def test_lowercase_words_are_not_treated_as_acronyms(self, biz):
+        assert biz.normalize("cat") == "cat"
+
+
+class TestRedundantGloss:
+    def test_a_repeated_phrase_is_said_once(self, biz):
+        """'CYN Communication (ซีวายเอ็น คอมมิวนิเคชั่น)' is one name, glossed."""
+        out = biz.normalize("CYN Communication (ซีวายเอ็น คอมมิวนิเคชั่น) จำกัด")
+        assert out.count("คอมมิวนิเคชั่น") == 1
+
+    def test_a_repeated_word_is_said_once(self, biz):
+        assert biz.normalize("อีเมล (Email)").count("อีเมล") == 1
+
+    def test_distinct_neighbours_are_untouched(self, biz):
+        assert biz.normalize("หนึ่ง สอง สาม") == "หนึ่ง สอง สาม"
+
+
+class TestTheContactCase:
+    """The message that prompted all of the above."""
+
+    SRC = ("นี่คือรายละเอียดข้อมูลติดต่อของ **บริษัท CYN Communication "
+           "(ซีวายเอ็น คอมมิวนิเคชั่น จำกัด)** ครับ: * **เบอร์โทรศัพท์:** "
+           "02-437-1210 * **อีเมล (Email):** info@cyn.co.th * **Line ID:** @cyngroup")
+
+    def test_nothing_unspeakable_survives(self, biz):
+        out = biz.normalize(self.SRC)
+        for ch in "*:()@":
+            assert ch not in out, f"{ch!r} left in: {out}"
+
+    def test_every_field_is_spoken(self, biz):
+        out = biz.normalize(self.SRC)
+        assert "ศูนย์สองสี่สามเจ็ดหนึ่งสองหนึ่งศูนย์" in out   # phone
+        assert "อินโฟ แอท ซีวายเอ็น ดอทซีโอดอททีเอช" in out    # email
+        assert "แอท ซีวายเอ็นกรุ๊ป" in out                      # line id
+
+    def test_no_digits_are_left_unspoken(self, biz):
+        assert not any(c.isdigit() for c in biz.normalize(self.SRC))

@@ -39,6 +39,21 @@ _DIGITS = ["ศูนย์", "หนึ่ง", "สอง", "สาม", "ส�
 _PLACES = ["", "สิบ", "ร้อย", "พัน", "หมื่น", "แสน"]
 _THAI_DIGIT_MAP = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
 
+# Letter names, for spelling out acronyms. "CYN" has no pronunciation as a
+# word; it is three letters and has to be said as three letters.
+_LETTERS = {
+    "a": "เอ", "b": "บี", "c": "ซี", "d": "ดี", "e": "อี", "f": "เอฟ",
+    "g": "จี", "h": "เอช", "i": "ไอ", "j": "เจ", "k": "เค", "l": "แอล",
+    "m": "เอ็ม", "n": "เอ็น", "o": "โอ", "p": "พี", "q": "คิว", "r": "อาร์",
+    "s": "เอส", "t": "ที", "u": "ยู", "v": "วี", "w": "ดับเบิลยู",
+    "x": "เอ็กซ์", "y": "วาย", "z": "แซด",
+}
+
+
+def spell_latin(s: str) -> str:
+    """Letter by letter in Thai: CYN -> ซีวายเอ็น."""
+    return "".join(_LETTERS.get(c.lower(), c) for c in s)
+
 
 def _under_million(n: int) -> str:
     """0-999999 in Thai, with the two irregularities the language insists on."""
@@ -130,6 +145,134 @@ class ThaiNormalizer:
 
     # -- individual passes ------------------------------------------------
 
+    # Agents keep emitting markdown even when told not to, and the model tries
+    # to voice the punctuation. Strip it rather than rely on the prompt.
+    _MD_BOLD = re.compile(r"\*{1,3}(.+?)\*{1,3}", re.S)
+    _MD_LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+    _MD_CODE = re.compile(r"`{1,3}([^`]*)`{1,3}", re.S)
+    _MD_BULLET = re.compile(r"^[ \t]*[*\-+•]\s+", re.M)
+    _MD_HEAD = re.compile(r"^#{1,6}\s*", re.M)
+
+    def _strip_markdown(self, text: str) -> str:
+        text = self._MD_LINK.sub(r"\1", text)
+        text = self._MD_CODE.sub(r"\1", text)
+        text = self._MD_BULLET.sub("", text)
+        text = self._MD_HEAD.sub("", text)
+        text = self._MD_BOLD.sub(r"\1", text)
+        text = text.replace("_", " ")
+        # Colons become pauses — except between digits, where the colon is a
+        # clock and removing it here would leave _times nothing to match.
+        text = re.sub(r"(?<!\d):(?!\d\d)", " ", text)
+        text = re.sub(r"[\u2013\u2014]", " ", text)
+        text = re.sub(r"[()\[\]{}]", " ", text)
+        # Unmatched markers survive the pair-matching passes above; a stray "**"
+        # is voiced as noise, so sweep whatever is left.
+        text = re.sub(r"[*`#]+", " ", text)
+        return text
+
+    # Thai numbers: 02-437-1210, 081-234-5678, 0812345678, +66 81 234 5678.
+    # A phone number is an identifier — "สี่ร้อยสามสิบเจ็ด" for the middle
+    # block is meaningless, and the leading zero disappears entirely.
+    _PHONE = re.compile(r"(?<![\d])(?:\+66[\s-]?)?0?\d(?:[\s-]?\d){7,9}(?![\d])")
+
+    def _phones(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            raw = m.group(0)
+            digits = re.sub(r"\D", "", raw)
+            if not 9 <= len(digits) <= 12:
+                return raw
+            prefix = "บวกหกหก" if raw.strip().startswith("+66") else ""
+            return prefix + _digits_to_thai(digits[2:] if prefix else digits)
+        return self._PHONE.sub(repl, text)
+
+    _TLD = {
+        "co.th": "ดอทซีโอดอททีเอช", "ac.th": "ดอทเอซีดอททีเอช",
+        "go.th": "ดอทจีโอดอททีเอช", "or.th": "ดอทโออาร์ดอททีเอช",
+        "in.th": "ดอทไอเอ็นดอททีเอช",
+        "com": "ดอทคอม", "net": "ดอทเน็ต", "org": "ดอทออร์ก",
+        "io": "ดอทไอโอ", "ai": "ดอทเอไอ", "dev": "ดอทเดฟ", "th": "ดอททีเอช",
+    }
+    _EMAIL = re.compile(r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z.]{2,})\b")
+
+    def _spell_domain(self, domain: str) -> str:
+        """cyn.co.th -> ซีวายเอ็น ดอทซีโอดอททีเอช."""
+        for tld, spoken in sorted(self._TLD.items(), key=lambda kv: -len(kv[0])):
+            if domain.lower().endswith("." + tld):
+                head = domain[: -(len(tld) + 1)]
+                return self._spell_token(head) + " " + spoken
+        return " ดอท ".join(self._spell_token(part) for part in domain.split("."))
+
+    def _spell_token(self, token: str) -> str:
+        """A word if the lexicon knows it, else its parts, else letter by letter.
+
+        Handles and local parts are routinely two words run together —
+        ``cyngroup``, ``salesupport``. Spelling those out one letter at a time
+        is technically correct and unlistenable, so try to segment first.
+        """
+        low = token.lower()
+        table = {k.lower(): v for k, v in self.words.items()}
+        if low in table:
+            return table[low]
+        parts = self._segment(low, table)
+        if parts:
+            return "".join(parts)
+        # Letter-by-letter suits an acronym and ruins a word: "CYN" is three
+        # letters, but "example" spelled out is อีเอ็กซ์เอเอ็มพีแอลอี. Past four
+        # characters, hand it to the model — a rough attempt at a word beats a
+        # perfect recitation of its spelling.
+        if len(token) <= 4:
+            return spell_latin(token)
+        return token
+
+    @staticmethod
+    def _segment(token: str, table: Dict[str, str]) -> List[str] | None:
+        """Split into known words, or None if the whole token isn't covered.
+
+        Backtracks rather than committing to the longest first match: greedy
+        takes "sales" out of "salesupport" and then cannot place "upport", even
+        though "sale" + "support" covers it exactly.
+
+        Only a full cover counts — a leftover fragment would have to be spelled
+        out, which reads worse than spelling the whole token consistently.
+        Pieces under three letters are ignored, or every handle dissolves into
+        a stream of one-syllable matches.
+        """
+        keys = sorted((k for k in table if len(k) >= 3), key=len, reverse=True)
+
+        def walk(i: int, depth: int) -> List[str] | None:
+            if i == len(token):
+                return []
+            if depth > 6:          # a handle is not made of seven words
+                return None
+            for k in keys:
+                if token.startswith(k, i):
+                    rest = walk(i + len(k), depth + 1)
+                    if rest is not None:
+                        return [table[k]] + rest
+            return None
+
+        return walk(0, 0) or None
+
+    def _emails(self, text: str) -> str:
+        return self._EMAIL.sub(
+            lambda m: f"{self._spell_token(m.group(1))} แอท {self._spell_domain(m.group(2))}",
+            text)
+
+    # A bare @handle is a Line ID or a social account, not an email.
+    _HANDLE = re.compile(r"(?<![\w@])@([A-Za-z][A-Za-z0-9._-]{1,30})\b")
+
+    def _handles(self, text: str) -> str:
+        return self._HANDLE.sub(lambda m: "แอท " + self._spell_token(m.group(1)), text)
+
+    # A run of capitals is an acronym, not a word: CYN, GPU, ID, API.
+    _ACRONYM = re.compile(r"\b[A-Z]{2,6}\b")
+
+    def _acronyms(self, text: str) -> str:
+        known = {k.lower() for k in self.words}
+        return self._ACRONYM.sub(
+            lambda m: m.group(0) if m.group(0).lower() in known else spell_latin(m.group(0)),
+            text)
+
     def _times(self, text: str) -> str:
         """23:45 -> ยี่สิบสามนาฬิกาสี่สิบห้านาที.
 
@@ -195,7 +338,13 @@ class ThaiNormalizer:
     def normalize(self, text: str) -> str:
         if not text:
             return text
+        text = self._strip_markdown(text)
         text = text.translate(_THAI_DIGIT_MAP)
+        # Emails before the @ symbol rule, or the address is torn apart.
+        text = self._emails(text)
+        text = self._handles(text)    # after emails: user@host must not match first
+        # Phones before general numbers, or each block becomes a quantity.
+        text = self._phones(text)
         # Abbreviations before numbers: "12 กม." must not lose its unit to the
         # number pass, and "น." must not survive to be read as a letter.
         # Times and dates run before abbreviations so "23:45 น." is one clock
@@ -205,10 +354,20 @@ class ThaiNormalizer:
         text = self._apply(self._abbr_re, self.abbr, text)
         text = self._percent(text)        # before numbers, or the % is orphaned
         text = self._apply(self._word_re, self.words, text)
+        text = self._acronyms(text)   # after the lexicon: GPU is known, CYN is not
         for sym, spoken in self.symbols.items():
             text = text.replace(sym, spoken)
         text = self._numbers(text)
-        return re.sub(r"\s{2,}", " ", text).strip()
+        text = re.sub(r"\s{2,}", " ", text).strip()
+        # "บริษัท CYN Communication (ซีวายเอ็น คอมมิวนิเคชั่น จำกัด)" normalises
+        # to the same Thai phrase twice — the writer glossed the English for
+        # readers, which is redundant once both halves are spoken Thai. Collapse
+        # an adjacent exact repeat of up to four words; longer spans are more
+        # likely to be deliberate.
+        for n in (4, 3, 2, 1):
+            pattern = r"(?<![^\s])((?:\S+)(?:\s+\S+){%d})(\s+\1)+(?![^\s])" % (n - 1)
+            text = re.sub(pattern, r"\1", text)
+        return text
 
 
 _DEFAULT: ThaiNormalizer | None = None
