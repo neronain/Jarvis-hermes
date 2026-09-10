@@ -130,6 +130,47 @@ curl -sk "https://host:8766/api/loadout?token=$TOKEN"
 | `/api/usage` | token ที่ใช้วันนี้ จำนวนเทิร์น |
 | `/ws` | WebSocket ของเสียงและ event ทั้งหมด |
 
+## VIEWS — Kanban / Hermes Dashboard
+
+ปุ่มในแผง VIEWS เปิดหน้าเว็บของ Hermes ใน viewer ที่ซ้อนอยู่บน HUD
+
+หน้าเหล่านี้ไม่ได้เสิร์ฟจาก voice server แต่มาจาก **dashboard ของ Hermes เอง**
+ที่ผูกกับ `127.0.0.1:9119` แล้วให้ voice server ทำ TLS reverse proxy ที่ 9443:
+
+```
+เบราว์เซอร์ ──https :9443──▶ voice server (ตรวจ token) ──http :9119──▶ hermes dashboard
+```
+
+ที่ต้องมี proxy คั่นเพราะ dashboard ผูกกับ loopback อย่างเดียว และหน้า HUD เป็น
+https จะ iframe หน้า http ไม่ได้ · proxy จึงทำสองอย่าง: ใส่ TLS และบังคับ auth
+
+### เปิดใช้งาน
+
+```bash
+systemctl --user enable --now hermes-dashboard
+```
+
+ครั้งแรกต้อง build web UI ก่อน (ต้องมี npm):
+
+```bash
+hermes dashboard --port 9119 --host 127.0.0.1 --no-open   # build แล้ว Ctrl-C
+```
+
+> ใช้ `hermes serve` ไม่ได้ — เป็นโหมด headless ที่ปิด web UI ไว้ และจะตอบ
+> `{"error":"Headless backend (hermes serve): web UI disabled"}` ต้องใช้
+> `hermes dashboard` เท่านั้น
+
+### ถ้ากดแล้วหน้าว่าง
+
+เบราว์เซอร์จำ cert exception **แยกตามพอร์ต** · คุณกด Proceed ให้ `:8766` ไปแล้ว
+แต่ `:9443` เป็นคนละ origin จึงยังไม่ได้รับอนุญาต และ iframe จะล้มแบบเงียบ ๆ
+
+เปิด `https://<host>:9443/` ตรง ๆ หนึ่งครั้ง กด Advanced → Proceed แล้วกลับมา
+ที่ HUD — ปุ่มจะทำงาน
+
+> cookie ไม่ใช่ปัญหา: cookie ไม่แยกตามพอร์ต ตัวที่ตั้งไว้ตอนเข้า `:8766`
+> ถูกส่งไป `:9443` ให้เองอยู่แล้ว
+
 ## ปุ่มลัด
 
 | ปุ่ม | ทำอะไร |

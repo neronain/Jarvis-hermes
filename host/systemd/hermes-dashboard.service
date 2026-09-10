@@ -1,0 +1,19 @@
+[Unit]
+Description=Hermes Agent web dashboard (backs the HUD's HERMES DASHBOARD view)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%h/.hermes/.env
+# --no-open: there is no browser on this host. Bound to loopback on purpose —
+# the voice server's dashboard_proxy is what exposes it, with auth in front.
+ExecStart=%h/.local/bin/hermes dashboard --port 9119 --host 127.0.0.1 --no-open --skip-build
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

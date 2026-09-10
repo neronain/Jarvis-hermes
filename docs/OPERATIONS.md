@@ -9,6 +9,7 @@
 | `rtx4000` | `jarvis-stats` | 8767 |
 | `HermesJarvis` | `jarvis-voice` | 8765 (ws) · 8766 (wss+HUD) · 9443 (dashboard proxy) |
 | `HermesJarvis` | `hermes-gateway` | 8642 (Hermes API) |
+| `HermesJarvis` | `hermes-dashboard` | 9119 (loopback · ผ่าน proxy 9443) |
 
 ทุกตัวเป็น systemd **user** service และเปิด linger ไว้แล้ว จึงรอด reboot และ logout
 
