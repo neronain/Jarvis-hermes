@@ -81,7 +81,7 @@ JS = MARKER + """
 // redeploy:  localStorage.setItem("jarvisVad", JSON.stringify({endMs:1200}))
 const VAD = Object.assign({
   frameMs:      80,   // one worklet frame; everything below is milliseconds
-  startMs:     200,   // speech must persist this long before a turn opens
+  startMs:     160,   // speech must persist this long before a turn opens
   bargeMs:     420,   // ... and longer to interrupt the assistant
   endMs:       650,   // silence this long closes the turn (dead time you feel)
   minTurnMs:   400,   // anything shorter is a cough, not a sentence
@@ -90,7 +90,11 @@ const VAD = Object.assign({
   bargeMargin: 6.0,   // ... over the assistant's echo, to count as interrupting
   echoGuardMs: 700,   // keep the strict bar this long after the last audio chunk
   cooldownMs: 1200,   // after sending a turn, refuse to open another at all
-  prerollMs:   640,   // audio kept from *before* the detector fired (see below)
+  prerollMs:  1200,   // audio kept from *before* the detector fired (see below)
+                      // 640 ms was not enough: a quiet opening syllable can
+                      // take most of a second to cross the threshold, and the
+                      // first word was still being cut. Leading silence costs
+                      // nothing — the STT trims it itself.
   dropRatio:  0.22,   // ... or this fraction of the turn's own peak (see below)
   floorUp:    0.02,   // noise floor rises slowly
   floorDown:  0.25,   // ... and falls quickly, to recover after speech
@@ -185,7 +189,10 @@ function beginTurn(interrupting){
   ws.send(JSON.stringify({type:"start",sample_rate:16000,format:"pcm_s16le",
                           channels:1,conversation:CONV}));
   // The words that opened the turn, before the live stream takes over.
+  const prerollSent = preroll.length;
   for(const b of preroll) ws.send(b);
+  if(VAD_DEBUG) console.log(`[vad] turn opened with ${prerollSent} preroll frames `
+                            + `(${prerollSent*VAD.frameMs} ms)`);
   turnMs = preroll.length * VAD.frameMs;   // that audio counts toward the turn
   preroll = [];
   // ... but not toward the speech test: the pre-roll is whatever the room was
