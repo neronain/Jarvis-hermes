@@ -29,8 +29,12 @@ command -v git >/dev/null || die "git not found — sudo apt install -y git"
 command -v python3 >/dev/null || die "python3 not found"
 python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' \
   || die "Python 3.10+ required (found $(python3 -V 2>&1))"
-python3 -c 'import venv' 2>/dev/null \
-  || die "python3-venv missing — sudo apt install -y python3-venv"
+# `import venv` succeeds on stock Ubuntu even though `python -m venv` then
+# fails: the missing piece is ensurepip, not venv. install.sh falls back to uv
+# when neither is present, so this is a note rather than a hard stop.
+python3 -c 'import ensurepip' 2>/dev/null \
+  || command -v uv >/dev/null 2>&1 \
+  || warn "no ensurepip and no uv — the installer will fetch uv into ~/.local/bin"
 
 if command -v nvidia-smi >/dev/null 2>&1; then
   ok "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"

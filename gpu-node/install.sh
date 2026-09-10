@@ -37,6 +37,26 @@ command -v "$PY" >/dev/null || die "$PY not found"
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' \
   || die "Python 3.10+ required (found $("$PY" -V 2>&1))"
 
+# Stock Ubuntu ships python3 without ensurepip, so `python -m venv` fails and
+# fixing it needs apt + sudo. uv is a single user-space binary that creates the
+# venv itself, so the installer never needs root. Prefer it when present, and
+# fetch it rather than asking for a password we may not be able to supply.
+PKG=""
+if command -v uv >/dev/null 2>&1; then
+  PKG=uv
+elif "$PY" -c 'import ensurepip' 2>/dev/null; then
+  PKG=venv
+else
+  log "python3-venv is unavailable — installing uv into ~/.local/bin"
+  curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null 2>&1 || true
+  export PATH="$HOME/.local/bin:$PATH"
+  command -v uv >/dev/null 2>&1 \
+    || die "could not install uv. Either install it manually, or run:
+       sudo apt install -y python3-venv"
+  PKG=uv
+fi
+ok "package manager: $PKG"
+
 # Picking the wrong CUDA index is the most expensive mistake here: pip installs
 # happily, nothing errors, and the first inference dies with "no kernel image is
 # available for execution on the device" — or silently runs on CPU. Blackwell
@@ -69,20 +89,35 @@ else
 fi
 
 # --- venv ------------------------------------------------------------------
-if [[ ! -d "$VENV" ]]; then
+if [[ ! -x "$VENV/bin/python" ]]; then
   log "creating venv at $VENV"
-  "$PY" -m venv "$VENV"
+  if [[ "$PKG" == "uv" ]]; then
+    uv venv "$VENV"
+  else
+    "$PY" -m venv "$VENV"
+  fi
 fi
-# shellcheck disable=SC1091
-source "$VENV/bin/activate"
-python -m pip install --quiet --upgrade pip wheel
+VPY="$VENV/bin/python"
+
+# One wrapper so the rest of the script doesn't branch on the package manager.
+pip_install() {
+  if [[ "$PKG" == "uv" ]]; then
+    uv pip install --python "$VPY" "$@"
+  else
+    "$VPY" -m pip install "$@"
+  fi
+}
+
+if [[ "$PKG" == "venv" ]]; then
+  "$VPY" -m pip install --quiet --upgrade pip wheel
+fi
 
 # --- torch (CUDA build first, so f5-tts-th doesn't pull the CPU wheel) ------
 # "torch.cuda.is_available()" is necessary but not sufficient on Blackwell: a
 # cu124 build reports True and then fails at the first kernel launch. Check that
 # this card's architecture is actually in the build.
 torch_supports_this_gpu() {
-  python - <<'PYEOF' 2>/dev/null
+  "$VPY" - <<'PYEOF' 2>/dev/null
 import sys
 try:
     import torch
@@ -97,10 +132,10 @@ PYEOF
 }
 
 if torch_supports_this_gpu; then
-  ok "torch with CUDA already present ($(python -c 'import torch; print(torch.__version__)'))"
+  ok "torch with CUDA already present ($("$VPY" -c 'import torch; print(torch.__version__)'))"
 else
   log "installing torch from $TORCH_INDEX (this is the slow part)"
-  pip install --upgrade --index-url "$TORCH_INDEX" torch torchaudio \
+  pip_install --upgrade --index-url "$TORCH_INDEX" torch torchaudio \
     || die "torch install failed — check that $TORCH_INDEX matches this node's CUDA version"
   torch_supports_this_gpu \
     || die "torch installed but has no kernels for this GPU. Override the index, e.g.
@@ -109,7 +144,7 @@ fi
 
 # --- sidecar deps ----------------------------------------------------------
 log "installing sidecar dependencies"
-pip install -r "$HERE/requirements.txt"
+pip_install -r "$HERE/requirements.txt"
 
 # --- config ----------------------------------------------------------------
 if [[ ! -f "$HERE/voices.yaml" ]]; then
@@ -120,14 +155,14 @@ fi
 # --- models ----------------------------------------------------------------
 if [[ "$SKIP_MODELS" -eq 0 ]]; then
   log "pre-downloading faster-whisper $STT_MODEL"
-  python - <<PYEOF
+  "$VPY" - <<PYEOF
 from faster_whisper import WhisperModel
 WhisperModel("${STT_MODEL}", device="cpu", compute_type="int8")
 print("whisper weights cached")
 PYEOF
 
   log "pre-downloading F5-TTS-TH weights"
-  python - <<'PYEOF'
+  "$VPY" - <<'PYEOF'
 try:
     from f5_tts_th.tts import TTS
     TTS(model="v2")
