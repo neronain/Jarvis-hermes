@@ -89,6 +89,7 @@ const VAD = Object.assign({
   speakMargin: 3.0,   // level over the room's noise floor to count as speech
   bargeMargin: 6.0,   // ... over the assistant's echo, to count as interrupting
   echoGuardMs: 700,   // keep the strict bar this long after the last audio chunk
+  cooldownMs: 1200,   // after sending a turn, refuse to open another at all
   dropRatio:  0.22,   // ... or this fraction of the turn's own peak (see below)
   floorUp:    0.02,   // noise floor rises slowly
   floorDown:  0.25,   // ... and falls quickly, to recover after speech
@@ -97,7 +98,7 @@ const VAD = Object.assign({
 const VAD_DEBUG = !!localStorage.getItem("jarvisVadDebug");
 
 let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnPeak=0;
-let agentBusy=false, lastAudioAt=0, ackBuffers=[];
+let agentBusy=false, lastAudioAt=0, ackBuffers=[], cooldownUntil=0;
 
 // Fetched once per session so end-of-turn playback is instant. Failures are
 // silent: no acknowledgment is a duller experience, not a broken one.
@@ -172,6 +173,7 @@ function endTurn(why){
   capturing=false;
   ws.send(JSON.stringify({type:"stop"}));
   playAck();   // answer the silence immediately, before the agent has started
+  cooldownUntil = performance.now() + VAD.cooldownMs;
   vadSpeech=0; vadSilence=0; turnMs=0; turnPeak=0;
   $("levelBar").style.width="0%";
   setState("thinking","PROCESSING");
@@ -191,6 +193,10 @@ function dropTurn(){
 
 function vadFrame(lvl){
   if(!handsFree || !wsReady) return;
+  // Nothing may open a turn right after one was sent: the acknowledgment is
+  // still playing, the room is still ringing, and a turn opened now would
+  // cancel the run that was just submitted.
+  if(!capturing && performance.now() < cooldownUntil){ vadSpeech=0; return; }
   const echo   = echoRisk();        // is the microphone hearing the assistant?
   const active = assistantActive(); // ... or is it working on an answer?
 
@@ -203,10 +209,13 @@ function vadFrame(lvl){
     noiseFloor = (noiseFloor===null) ? lvl : noiseFloor*(1-a) + lvl*a;
   }
   const floor  = Math.max(noiseFloor===null?VAD.floorMin:noiseFloor, VAD.floorMin);
-  // The strict bar applies only when echo is actually possible. While the
-  // agent is merely thinking there is nothing to echo, and holding the bar
-  // high there would make it needlessly hard to interrupt.
-  const absGate = floor * (echo ? VAD.bargeMargin : VAD.speakMargin);
+  // The strict bar applies for as long as the agent is working, not only when
+  // it is audibly speaking. Tying it to echo alone was a real bug: during the
+  // five seconds of thinking the loose bar applied, ordinary room noise opened
+  // a turn, and opening a turn cancels the run that was already in flight — so
+  // the answer never arrived at all. Being hard to interrupt is a far smaller
+  // problem than never being answered.
+  const absGate = floor * ((echo || active) ? VAD.bargeMargin : VAD.speakMargin);
 
   // Absolute levels alone are not enough. Browser auto gain control lifts the
   // signal once you stop talking, so room noise can sit at the same level your
@@ -220,7 +229,7 @@ function vadFrame(lvl){
   if(lvl > gate){ vadSpeech += VAD.frameMs; vadSilence = 0; }
   else          { vadSilence += VAD.frameMs; if(!capturing) vadSpeech = 0; }
 
-  if(VAD_DEBUG) hfStatus(`${lvl.toFixed(3)}>${gate.toFixed(3)} sil${vadSilence}`);
+  if(VAD_DEBUG) hfStatus(`${lvl.toFixed(3)}>${gate.toFixed(3)} sil${vadSilence}${active?" busy":""}`);
 
   if(capturing){
     turnMs += VAD.frameMs;
@@ -261,7 +270,7 @@ async function toggleHandsFree(){
   try{ await initMic() }catch(err){ addMsg("sys","mic blocked: "+err.message); return }
   loadAcks();                       // not awaited: the first turn can go without
   handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0; turnPeak=0;
-  agentBusy=false; lastAudioAt=0;
+  agentBusy=false; lastAudioAt=0; cooldownUntil=0;
   $("talkBtn").textContent="■ END SESSION";
   $("micState").textContent="LIVE";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
