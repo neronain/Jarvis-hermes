@@ -39,11 +39,12 @@ const VAD = Object.assign({
   frameMs:      80,   // one worklet frame; everything below is milliseconds
   startMs:     200,   // speech must persist this long before a turn opens
   bargeMs:     420,   // ... and longer to interrupt the assistant
-  endMs:       900,   // silence this long closes the turn
+  endMs:       650,   // silence this long closes the turn (dead time you feel)
   minTurnMs:   400,   // anything shorter is a cough, not a sentence
   maxTurnMs: 20000,   // hard stop: a turn always ends, whatever the detector thinks
   speakMargin: 3.0,   // level over the room's noise floor to count as speech
   bargeMargin: 6.0,   // ... over the assistant's echo, to count as interrupting
+  echoGuardMs: 700,   // keep the strict bar this long after the last audio chunk
   dropRatio:  0.22,   // ... or this fraction of the turn's own peak (see below)
   floorUp:    0.02,   // noise floor rises slowly
   floorDown:  0.25,   // ... and falls quickly, to recover after speech
@@ -52,10 +53,33 @@ const VAD = Object.assign({
 const VAD_DEBUG = !!localStorage.getItem("jarvisVadDebug");
 
 let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnPeak=0;
+let agentBusy=false, lastAudioAt=0;
 
 function botSpeaking(){
   return activeSources.length>0 && audioCtx && playhead > audioCtx.currentTime + 0.05;
 }
+
+// The assistant's own voice comes back through the microphone, and the queue
+// runs dry between sentences - so botSpeaking() alone reports "silent" in the
+// gaps, the loose threshold applies, and the echo of its own last word opens a
+// new turn. The agent answers again, that answer echoes, and it loops. Hence a
+// guard window after the last chunk, and a busy flag that spans the gaps.
+function echoRisk(){
+  return botSpeaking() || (performance.now() - lastAudioAt) < VAD.echoGuardMs;
+}
+function assistantActive(){ return agentBusy || echoRisk(); }
+
+// Derived by wrapping rather than by patching four separate event handlers:
+// every one of them routes through setState, and both are called by name at
+// event time, so the wrappers are what actually run.
+const _setState = setState;
+setState = function(st, label, hint){
+  if(st==="thinking" || st==="tool" || st==="speaking") agentBusy=true;
+  else if(st==="standby") agentBusy=false;
+  return _setState(st, label, hint);
+};
+const _playChunk = playChunk;
+playChunk = function(buf){ lastAudioAt = performance.now(); return _playChunk(buf); };
 
 function hfStatus(text, cls){
   const el=$("hfState"); if(el){ el.textContent=text; el.className=cls||""; }
@@ -93,18 +117,22 @@ function dropTurn(){
 
 function vadFrame(lvl){
   if(!handsFree || !wsReady) return;
-  const speaking = botSpeaking();
+  const echo   = echoRisk();        // is the microphone hearing the assistant?
+  const active = assistantActive(); // ... or is it working on an answer?
 
   // Learn the room only when neither side is talking, or the floor climbs to
   // match whoever is speaking and the detector goes deaf. Asymmetric on
   // purpose: rise slowly so a passing noise does not raise the bar, fall
   // quickly so the room is re-learned as soon as a turn ends.
-  if(!capturing && !speaking){
+  if(!capturing && !active){
     const a = (noiseFloor===null || lvl < noiseFloor) ? VAD.floorDown : VAD.floorUp;
     noiseFloor = (noiseFloor===null) ? lvl : noiseFloor*(1-a) + lvl*a;
   }
   const floor  = Math.max(noiseFloor===null?VAD.floorMin:noiseFloor, VAD.floorMin);
-  const absGate = floor * (speaking ? VAD.bargeMargin : VAD.speakMargin);
+  // The strict bar applies only when echo is actually possible. While the
+  // agent is merely thinking there is nothing to echo, and holding the bar
+  // high there would make it needlessly hard to interrupt.
+  const absGate = floor * (echo ? VAD.bargeMargin : VAD.speakMargin);
 
   // Absolute levels alone are not enough. Browser auto gain control lifts the
   // signal once you stop talking, so room noise can sit at the same level your
@@ -131,7 +159,7 @@ function vadFrame(lvl){
     }
     return;
   }
-  if(vadSpeech >= (speaking ? VAD.bargeMs : VAD.startMs)) beginTurn(speaking);
+  if(vadSpeech >= (active ? VAD.bargeMs : VAD.startMs)) beginTurn(active);
 }
 
 // Push-to-talk and hands-free drive the same capture state, so one has to
@@ -158,6 +186,7 @@ async function toggleHandsFree(){
   }
   try{ await initMic() }catch(err){ addMsg("sys","mic blocked: "+err.message); return }
   handsFree=true; noiseFloor=null; vadSpeech=0; vadSilence=0; turnPeak=0;
+  agentBusy=false; lastAudioAt=0;
   $("talkBtn").textContent="■ END SESSION";
   $("micState").textContent="LIVE";
   setState("standby","STANDBY","HANDS-FREE — JUST TALK");
