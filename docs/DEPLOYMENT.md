@@ -7,9 +7,14 @@ voice host, และการต่อทั้งสองเข้าด้�
 
 | บทบาท | เครื่อง | ที่อยู่ | หมายเหตุ |
 |---|---|---|---|
-| GPU node | `dgx-msi-04` | `100.84.136.110` (Tailscale) | NVIDIA CUDA — รัน STT + TTS |
+| GPU node (หลัก) | `dgx-msi-04` | `100.84.136.110` (Tailscale) | NVIDIA CUDA — รัน STT + TTS |
+| GPU node (สำรอง) | `rtx4000` | `100.113.214.111` (Tailscale) / `192.168.10.41` (LAN) | ใช้แทนได้ทั้งดุ้น |
 | Voice host | OrbStack VM `HermesJarvis` | `192.168.139.181` | Ubuntu questing `aarch64` ไม่มี GPU |
 | Agent | เดียวกับ voice host | `127.0.0.1:8642` | Hermes Agent v0.20.5 |
+
+sidecar ไม่ผูกกับเครื่องใดเครื่องหนึ่ง — ย้าย node ได้โดยแก้ที่เดียวคือ
+`stt.remote.url` กับ `voice.url` ใน `server.yaml` และจะแยก STT กับ TTS ไปคนละ
+เครื่องก็ได้ถ้า VRAM ไม่พอ
 
 ---
 
@@ -22,8 +27,9 @@ voice host, และการต่อทั้งสองเข้าด้�
 ถ้ายังเข้าไม่ได้ ให้ติดตั้ง public key ก่อนโดยรันจากเครื่องที่จะ deploy:
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/id_jarvis_gpu -C "jarvis-deploy"
+ssh-keygen -t ed25519 -f ~/.ssh/id_jarvis_gpu -N "" -C "jarvis-deploy"
 ssh-copy-id -i ~/.ssh/id_jarvis_gpu.pub neronain@100.84.136.110
+ssh-copy-id -i ~/.ssh/id_jarvis_gpu.pub neronain@100.113.214.111   # เครื่องสำรอง
 ```
 
 แล้วเพิ่มลง `~/.ssh/config`:
@@ -34,9 +40,18 @@ Host msi-4
     User neronain
     IdentityFile ~/.ssh/id_jarvis_gpu
     IdentitiesOnly yes
+
+Host rtx4000
+    HostName 100.113.214.111
+    User neronain
+    IdentityFile ~/.ssh/id_jarvis_gpu
+    IdentitiesOnly yes
 ```
 
 ทดสอบ: `ssh msi-4 nvidia-smi`
+
+> `ssh-copy-id` ต้องพิมพ์รหัสผ่านครั้งเดียว หลังจากนั้นใช้ key ตลอด —
+> `deploy-gpu-node.sh` ใช้ `BatchMode=yes` จึงไม่รับรหัสผ่านโดยเจตนา
 
 ---
 
@@ -64,7 +79,7 @@ nvidia-smi --query-gpu=memory.total --format=csv
 ### ติดตั้ง
 
 ```bash
-# จากเครื่อง dev
+# จากเครื่อง dev — เปลี่ยน msi-4 เป็น rtx4000 ได้ถ้าใช้เครื่องสำรอง
 ./scripts/deploy-gpu-node.sh msi-4
 
 # หรือบน node โดยตรง
