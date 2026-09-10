@@ -51,10 +51,57 @@ _lock = threading.Lock()
 _stats = {"requests": 0, "errors": 0, "audio_seconds": 0.0, "decode_seconds": 0.0}
 
 
+def _preload_cuda_libs() -> None:
+    """Make the pip-installed cuBLAS/cuDNN visible to ctranslate2.
+
+    faster-whisper's backend dlopens ``libcublas.so.12`` and ``libcudnn*.so.9``
+    by soname. pip puts them under ``site-packages/nvidia/*/lib``, which is on
+    no loader search path, so the import succeeds and the *first transcription*
+    dies with "Library libcublas.so.12 is not found or cannot be loaded".
+
+    Setting LD_LIBRARY_PATH from inside the process is too late — the loader
+    reads it once at exec. Opening each library by absolute path with
+    RTLD_GLOBAL puts it in the global symbol table, so ctranslate2's later
+    dlopen by soname resolves to the already-loaded copy.
+
+    Inter-library dependencies (cublas needs cublasLt, cudnn's engines need its
+    graph/ops cores) mean load order matters and isn't documented, so failures
+    are retried until a pass stops making progress.
+    """
+    import ctypes
+    import glob
+    import sysconfig
+
+    roots = {sysconfig.get_paths()[k] for k in ("purelib", "platlib")}
+    pending = sorted({
+        path
+        for root in roots
+        for sub in ("cublas", "cudnn")
+        for path in glob.glob(os.path.join(root, "nvidia", sub, "lib", "*.so*"))
+    })
+    if not pending:
+        return  # system CUDA, or a conda install — nothing to do
+
+    loaded = 0
+    while pending:
+        failed = []
+        for path in pending:
+            try:
+                ctypes.CDLL(path, mode=ctypes.RTLD_GLOBAL)
+                loaded += 1
+            except OSError:
+                failed.append(path)
+        if len(failed) == len(pending):
+            break  # no progress; the rest genuinely can't load
+        pending = failed
+    LOG.info("preloaded %d CUDA libraries from site-packages", loaded)
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     global _model
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    _preload_cuda_libs()
     from faster_whisper import WhisperModel
 
     LOG.info("loading %s on %s (%s) ...", MODEL_NAME, DEVICE, COMPUTE_TYPE)
