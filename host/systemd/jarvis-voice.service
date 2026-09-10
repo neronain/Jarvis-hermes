@@ -1,0 +1,20 @@
+[Unit]
+Description=Jarvis voice pipeline server (jarvis_ai + F5-TTS-TH)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@JARVIS_AI@@
+# Secrets live in Hermes' env file, which is also where the agent reads its own.
+EnvironmentFile=-%h/.hermes/.env
+ExecStart=@@JARVIS_AI@@/.venv/bin/python @@JARVIS_AI@@/server/server.py
+Restart=on-failure
+RestartSec=10
+# The local STT fallback model loads at startup; don't let systemd give up first.
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
