@@ -12,7 +12,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="${JARVIS_VENV:-$HERE/.venv}"
 PY="${JARVIS_PYTHON:-python3}"
-TORCH_INDEX="${JARVIS_TORCH_INDEX:-https://download.pytorch.org/whl/cu124}"
+TORCH_INDEX="${JARVIS_TORCH_INDEX:-}"   # empty = pick from the GPU's compute capability
 WITH_SYSTEMD=0
 SKIP_MODELS=0
 STT_MODEL="${JARVIS_STT_MODEL:-large-v3}"
@@ -37,10 +37,35 @@ command -v "$PY" >/dev/null || die "$PY not found"
 "$PY" -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)' \
   || die "Python 3.10+ required (found $("$PY" -V 2>&1))"
 
+# Picking the wrong CUDA index is the most expensive mistake here: pip installs
+# happily, nothing errors, and the first inference dies with "no kernel image is
+# available for execution on the device" — or silently runs on CPU. Blackwell
+# (sm_120 / sm_121) has no kernels in cu124 at all, so the index is derived from
+# the card rather than hardcoded.
+pick_torch_index() {
+  local cap major
+  cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
+  major=${cap%%.*}
+  if [[ -z "$cap" ]]; then
+    echo "https://download.pytorch.org/whl/cu124"          # no GPU visible; harmless default
+  elif [[ "$major" -ge 12 ]]; then
+    echo "https://download.pytorch.org/whl/cu128"          # Blackwell
+  elif [[ "$major" -ge 9 ]]; then
+    echo "https://download.pytorch.org/whl/cu126"          # Hopper/Ada refresh
+  else
+    echo "https://download.pytorch.org/whl/cu124"
+  fi
+}
+
 if command -v nvidia-smi >/dev/null 2>&1; then
-  ok "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1)"
+  ok "GPU: $(nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader | head -1)"
+  if [[ -z "$TORCH_INDEX" ]]; then
+    TORCH_INDEX="$(pick_torch_index)"
+    ok "torch index: ${TORCH_INDEX##*/} (from compute capability)"
+  fi
 else
   warn "nvidia-smi not found — the sidecars require CUDA and will fail to start"
+  TORCH_INDEX="${TORCH_INDEX:-https://download.pytorch.org/whl/cu124}"
 fi
 
 # --- venv ------------------------------------------------------------------
@@ -53,12 +78,33 @@ source "$VENV/bin/activate"
 python -m pip install --quiet --upgrade pip wheel
 
 # --- torch (CUDA build first, so f5-tts-th doesn't pull the CPU wheel) ------
-if python -c 'import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)' 2>/dev/null; then
+# "torch.cuda.is_available()" is necessary but not sufficient on Blackwell: a
+# cu124 build reports True and then fails at the first kernel launch. Check that
+# this card's architecture is actually in the build.
+torch_supports_this_gpu() {
+  python - <<'PYEOF' 2>/dev/null
+import sys
+try:
+    import torch
+    if not torch.cuda.is_available():
+        sys.exit(1)
+    cap = torch.cuda.get_device_capability(0)
+    arch = f"sm_{cap[0]}{cap[1]}"
+    sys.exit(0 if arch in torch.cuda.get_arch_list() else 1)
+except Exception:
+    sys.exit(1)
+PYEOF
+}
+
+if torch_supports_this_gpu; then
   ok "torch with CUDA already present ($(python -c 'import torch; print(torch.__version__)'))"
 else
   log "installing torch from $TORCH_INDEX (this is the slow part)"
-  pip install --index-url "$TORCH_INDEX" torch torchaudio \
+  pip install --upgrade --index-url "$TORCH_INDEX" torch torchaudio \
     || die "torch install failed — check that $TORCH_INDEX matches this node's CUDA version"
+  torch_supports_this_gpu \
+    || die "torch installed but has no kernels for this GPU. Override the index, e.g.
+       JARVIS_TORCH_INDEX=https://download.pytorch.org/whl/cu130 ./install.sh"
 fi
 
 # --- sidecar deps ----------------------------------------------------------
