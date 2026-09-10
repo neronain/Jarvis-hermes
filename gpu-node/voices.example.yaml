@@ -1,0 +1,27 @@
+# Voice definitions for the Thai TTS sidecar.
+#
+# F5-TTS is zero-shot: a "voice" is a short reference clip plus its exact
+# transcript, not a trained model. Swapping the assistant's voice means
+# swapping this file — no retraining.
+#
+# Reference clip requirements:
+#   - 5-15 seconds, single speaker, clean (no music/noise/reverb)
+#   - WAV, mono, 24 kHz preferred (other rates are resampled)
+#   - ref_text must match the clip word for word, including punctuation
+#
+# Copy to voices.yaml and edit.
+
+default: jarvis
+
+voices:
+  jarvis:
+    description: "เสียงหลักของ J.A.R.V.I.S — ผู้ชาย โทนนิ่ง สุภาพ"
+    ref_audio: voices/jarvis_ref.wav
+    ref_text: "สวัสดีครับ ผมคือผู้ช่วยส่วนตัวของคุณ ยินดีที่ได้รับใช้"
+    speed: 1.0
+
+  friday:
+    description: "เสียงสำรอง — ผู้หญิง โทนสดใส"
+    ref_audio: voices/friday_ref.wav
+    ref_text: "สวัสดีค่ะ วันนี้มีอะไรให้ช่วยไหมคะ"
+    speed: 1.05

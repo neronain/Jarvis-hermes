@@ -1,0 +1,39 @@
+# secrets
+.env
+*.env
+!.env.example
+!**/.env.example
+
+# local config derived from the examples
+gpu-node/voices.yaml
+host/config/server.yaml
+
+# reference voice clips — audio of a real person, never commit
+gpu-node/voices/*.wav
+gpu-node/voices/*.mp3
+gpu-node/voices/*.m4a
+gpu-node/voices/*.flac
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# model weights / caches
+*.pt
+*.safetensors
+models/
+.cache/
+
+# outputs
+*.wav
+!gpu-node/voices/README.md
+jarvis-debug.txt
+jarvis-node-backup-*.tar.gz
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/

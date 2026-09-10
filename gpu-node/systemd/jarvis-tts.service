@@ -1,0 +1,18 @@
+[Unit]
+Description=Jarvis Thai TTS sidecar (F5-TTS-TH)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@WORKDIR@@
+EnvironmentFile=-@@WORKDIR@@/.env
+ExecStart=@@VENV@@/bin/python @@WORKDIR@@/tts_server.py
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

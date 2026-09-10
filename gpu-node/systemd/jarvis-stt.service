@@ -1,0 +1,19 @@
+[Unit]
+Description=Jarvis GPU STT sidecar (faster-whisper)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@WORKDIR@@
+EnvironmentFile=-@@WORKDIR@@/.env
+ExecStart=@@VENV@@/bin/python @@WORKDIR@@/stt_server.py
+Restart=on-failure
+RestartSec=5
+# Model load pulls several GB from disk into VRAM; don't let systemd give up early.
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

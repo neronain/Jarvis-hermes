@@ -1,0 +1,17 @@
+[Unit]
+Description=Jarvis GPU node stats (HUD machines panel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@@WORKDIR@@
+EnvironmentFile=-@@WORKDIR@@/.env
+ExecStart=@@VENV@@/bin/python @@WORKDIR@@/worker_stats.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

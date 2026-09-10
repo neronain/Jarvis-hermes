@@ -1,0 +1,80 @@
+# Jarvis-hermes — voice pipeline host config.
+# Copy to server.yaml. Secrets live in ~/.hermes/.env, never here.
+#
+# Differences from upstream jarvis_ai/server/config/server.example.yaml:
+#   - stt.remote points at the GPU node (large-v3, Thai)
+#   - voice.provider is f5_tts_th instead of elevenlabs
+#   - hermes.instructions are Thai-first
+# Everything else keeps upstream's meaning.
+
+llm:
+  provider: hermes
+  max_tokens: 220
+  temperature: 0.3
+
+hermes:
+  base_url: http://127.0.0.1:8642
+  api_key_env: API_SERVER_KEY
+  conversation: jarvis-main
+  session_key: jarvis:user:main
+  timeout: 240
+  ack_after_seconds: 0
+  ack_texts: ["รับทราบครับ", "กำลังดำเนินการ", "อีกสักครู่ครับ"]
+  instructions: >
+    คุณกำลังพูดผ่านระบบเสียง คำตอบจะถูกแปลงเป็นเสียงพูด
+    ให้ตอบเป็นภาษาไทยแบบพูดคุยธรรมดาเท่านั้น ห้ามใช้ markdown ห้ามใช้ bullet
+    ห้ามใส่ code block ตอบสั้น 1-3 ประโยค เว้นแต่ถูกขอให้อธิบายละเอียด
+    อ่านตัวเลข วันที่ เวลา และเบอร์โทรเป็นคำพูดแบบธรรมชาติ
+    ห้ามพูดรหัสผ่าน API key หรือความลับใด ๆ ออกเสียง
+
+stt:
+  # Local fallback — runs on the host CPU when the GPU node is unreachable.
+  # Keep it small: it exists to degrade gracefully, not to be good.
+  model: small
+  device: cpu
+  compute_type: int8
+  sample_rate: 16000
+  partials: true
+  partial_interval: 1.2
+  language: th
+  remote:
+    name: msi-4
+    url: http://100.84.136.110:8768/stt
+    token_env: JARVIS_STT_TOKEN
+    timeout: 6
+
+voice:
+  provider: f5_tts_th
+  url: http://100.84.136.110:8769
+  voice_name: jarvis           # must exist in the GPU node's voices.yaml
+  token_env: JARVIS_TTS_TOKEN
+  speed: 1.0
+  step: 32                     # lower = faster first syllable, slightly rougher
+  cfg: 2.0
+  timeout: 30
+  sample_rate: 16000           # matches JARVIS_TTS_PCM_RATE on the node
+  output_format: pcm_16000
+
+machines:
+  - name: "MSI-4 (GPU)"
+    host: 100.84.136.110
+    stats_url: http://100.84.136.110:8767/stats
+    ping_port: 8768
+
+server:
+  host: 0.0.0.0
+  port: 8765
+  tls_ports: [8766]
+  tls_cert: certs/cert.pem
+  tls_key: certs/key.pem
+  dashboard_proxy:
+    port: 9443
+    target: http://127.0.0.1:9119
+
+security:
+  hud_token_env: JARVIS_HUD_TOKEN
+  extra_origin_hosts: []
+
+usage:
+  llm_cost_per_mtok_input: 0
+  llm_cost_per_mtok_output: 0

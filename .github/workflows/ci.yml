@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile all Python
+        run: python -m compileall -q gpu-node host
+
+      - name: Check shell scripts parse
+        run: |
+          for f in scripts/*.sh gpu-node/*.sh; do
+            bash -n "$f" || exit 1
+          done
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning scripts/*.sh gpu-node/*.sh || true
+
+      - name: Validate YAML
+        run: |
+          pip install --quiet pyyaml
+          python - <<'PY'
+          import sys, yaml, pathlib
+          bad = 0
+          for p in pathlib.Path('.').rglob('*.yaml'):
+              if '.github' in p.parts:
+                  continue
+              try:
+                  yaml.safe_load(p.read_text())
+              except Exception as e:
+                  print(f"{p}: {e}"); bad = 1
+          sys.exit(bad)
+          PY
+
+      - name: No secrets committed
+        run: |
+          if git ls-files | grep -E '(^|/)\.env$'; then
+            echo "a .env file is tracked — remove it"; exit 1
+          fi
+          if git grep -nIE 'sk-[a-zA-Z0-9_-]{16,}' -- . ':!*.md'; then
+            echo "possible API key committed"; exit 1
+          fi

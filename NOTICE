@@ -1,0 +1,42 @@
+Jarvis-hermes
+=============
+
+This project builds on the following open-source work.
+
+--------------------------------------------------------------------------
+jarvis_ai — https://github.com/eadmin2/jarvis_ai
+MIT License, Copyright (c) eadmin2
+--------------------------------------------------------------------------
+
+Jarvis-hermes extends jarvis_ai's voice pipeline and HUD. Specifically:
+
+- `gpu-node/stt_server.py` is a Linux/CUDA rewrite of upstream's
+  `worker/stt_server.py`. The HTTP contract (POST /stt taking raw int16
+  16 kHz mono PCM, returning {"text": ...}) is kept identical so upstream's
+  voice server works against it unmodified. The Windows DLL-loading shim was
+  removed, defaults changed to large-v3 + Thai, and health/stat reporting
+  added.
+
+- `gpu-node/worker_stats.py` follows upstream's `worker/worker_stats.py`
+  contract for the HUD "machines" panel, extended with per-sidecar health.
+
+- `host/config/server.example.yaml` is derived from upstream's
+  `server/config/server.example.yaml`, with the stt.remote and voice blocks
+  changed for this deployment.
+
+Everything else in this repository — the Thai TTS sidecar (`tts_server.py`),
+the host-side F5-TTS provider, the installer, systemd units, scripts, and all
+documentation — is original work.
+
+--------------------------------------------------------------------------
+Other dependencies
+--------------------------------------------------------------------------
+
+- Hermes Agent — https://github.com/NousResearch/hermes-agent
+- faster-whisper — https://github.com/SYSTRAN/faster-whisper (MIT)
+- F5-TTS — https://arxiv.org/abs/2410.06885
+- f5-tts-th — https://pypi.org/project/f5-tts-th/
+- F5-TTS-TH-V2 weights — https://huggingface.co/VIZINTZOR/F5-TTS-TH-V2
+
+Model weights are downloaded at install time and are governed by their own
+licences. Review them before any commercial use.

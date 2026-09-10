@@ -1,0 +1,23 @@
+# Jarvis GPU node — STT + Thai TTS sidecars (Linux + NVIDIA CUDA)
+#
+# torch is intentionally NOT pinned here: install the build that matches the
+# node's CUDA runtime first (see install.sh), then this file on top.
+
+# --- speech to text ---
+faster-whisper==1.2.1
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
+
+# --- thai text to speech ---
+f5-tts-th==1.0.9
+soundfile>=0.12.1
+
+# --- serving ---
+fastapi>=0.115
+uvicorn[standard]>=0.30
+numpy>=1.26
+pyyaml>=6.0
+requests>=2.31
+
+# --- host stats panel ---
+psutil>=5.9
