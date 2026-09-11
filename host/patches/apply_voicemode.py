@@ -34,6 +34,7 @@ import sys
 from pathlib import Path
 
 MARKER = "# --- jarvis-hermes: voice mode warm-up ---"
+HUD_MARKER = "window.TTS_RATE"
 
 BLOCK = '''
 ''' + MARKER + '''
@@ -139,6 +140,32 @@ async def _vm_status() -> JSONResponse:
 
 '''
 
+# --- the audio path -------------------------------------------------------
+#
+# F5-TTS-TH generates at 24 kHz and the pipeline was delivering 16 kHz, which
+# measured 30% less energy in 2-4 kHz than the native output — the band Thai
+# consonants live in. The HUD made that unavoidable by pinning its AudioContext
+# to 16 kHz, so nothing downstream could have carried more.
+#
+# Only the PLAYBACK side moves. Capture stays 16 kHz because that is what the
+# STT wants, and the worklet already has the branch for a context running at
+# another rate; it was simply never taken.
+#
+# Three numbers have to agree or speech plays at the wrong speed: the node's
+# JARVIS_TTS_PCM_RATE, the host's voice.sample_rate, and TTS_RATE here.
+# scripts/healthcheck.sh compares them.
+HUD_RATE_OLD = 'try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000}); }'
+HUD_RATE_NEW = (
+    '// Playback runs at the synthesiser\'s own rate; the capture worklet\n'
+    '  // resamples to 16 kHz for the STT on its way out.\n'
+    '  // On window, not a local const: playChunk and the ack loader read it\n'
+    '  // too, and they are not inside this function.\n'
+    '  window.TTS_RATE = window.TTS_RATE || 24000;\n'
+    '  try{ audioCtx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:window.TTS_RATE}); }'
+)
+HUD_BUF_OLD = 'createBuffer(1,f32.length,16000)'
+HUD_BUF_NEW = 'createBuffer(1,f32.length,window.TTS_RATE)'
+
 CONNECT_OLD = (
     '    await ws.send_json({"type": "status", "message": "Hermes voice server connected."})'
 )
@@ -152,18 +179,19 @@ CONNECT_NEW = (
 STARTUP_ANCHOR = '@app.on_event("startup")\nasync def warm_pipeline() -> None:'
 
 
-def _patch(path: Path, pairs: list[tuple[str, str]], marker: str) -> str:
+def _patch(path: Path, pairs: list[tuple[str, str, int]], marker: str) -> str:
+    """pairs are (old, new, count); count 0 means every occurrence."""
     src = path.read_text(encoding="utf-8")
     if marker in src:
         return "already patched"
-    for old, _ in pairs:
+    for old, _, _ in pairs:
         if old not in src:
             return f"anchor not found: {old.strip()[:60]}"
     backup = path.with_suffix(path.suffix + ".orig")
     if not backup.exists():
         shutil.copy2(path, backup)
-    for old, new in pairs:
-        src = src.replace(old, new, 1)
+    for old, new, count in pairs:
+        src = src.replace(old, new) if count == 0 else src.replace(old, new, count)
     path.write_text(src, encoding="utf-8")
     return "patched"
 
@@ -179,9 +207,16 @@ def main(argv: list[str]) -> int:
         return 1
 
     print("server.py:", _patch(server, [
-        (STARTUP_ANCHOR, BLOCK.lstrip("\n") + STARTUP_ANCHOR),
-        (CONNECT_OLD, CONNECT_NEW),
+        (STARTUP_ANCHOR, BLOCK.lstrip("\n") + STARTUP_ANCHOR, 1),
+        (CONNECT_OLD, CONNECT_NEW, 1),
     ], MARKER))
+
+    hud = root / "server" / "hud" / "index.html"
+    if hud.exists():
+        print("hud:", _patch(hud, [
+            (HUD_RATE_OLD, HUD_RATE_NEW, 1),
+            (HUD_BUF_OLD, HUD_BUF_NEW, 0),   # playback and the ack clips both
+        ], HUD_MARKER))
     return 0
 
 
