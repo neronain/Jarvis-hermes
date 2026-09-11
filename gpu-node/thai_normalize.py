@@ -145,11 +145,19 @@ class ThaiNormalizer:
         if not table:
             return None
         keys = sorted(table, key=len, reverse=True)
-        # ASCII entries get word boundaries so "no" doesn't fire inside "node".
         parts = []
         for k in keys:
             esc = re.escape(k)
-            parts.append(rf"\b{esc}\b" if k.isascii() else esc)
+            if k.isascii():
+                # Word boundaries so "no" doesn't fire inside "node".
+                parts.append(rf"\b{esc}\b")
+            elif k.endswith("."):
+                # A Thai abbreviation ends at its period: `น.` is "นาฬิกา" in
+                # "23:45 น." and is not there at all in "ชื่อต้น.นามสกุล", where
+                # it matched mid-word and produced "ชื่อต้นาฬิกานามสกุล".
+                parts.append(rf"{esc}(?![\u0E00-\u0E7F])")
+            else:
+                parts.append(esc)
         return re.compile("|".join(parts), re.IGNORECASE)
 
     # -- individual passes ------------------------------------------------
@@ -162,6 +170,24 @@ class ThaiNormalizer:
     _MD_BULLET = re.compile(r"^[ \t]*[*\-+•]\s+", re.M)
     _MD_HEAD = re.compile(r"^#{1,6}\s*", re.M)
     _MD_RULE = re.compile(r"(?:^|\s)[-*_]{3,}(?=\s|$)", re.M)
+    # Assistants emit LaTeX for arrows and symbols. Spoken, "$\rightarrow$"
+    # becomes "ดอลลาร์ rightarrow ดอลลาร์": the dollars are read as currency and
+    # the command as a word. The common relations get their Thai reading; the
+    # rest of the markup goes.
+    _TEX_WORDS = {
+        r"\\rightarrow": " ถึง ", r"\\to": " ถึง ", r"\\leftarrow": " จาก ",
+        r"\\times": " คูณ ", r"\\div": " หาร ", r"\\pm": " บวกลบ ",
+        r"\\leq": " น้อยกว่าหรือเท่ากับ ", r"\\geq": " มากกว่าหรือเท่ากับ ",
+        r"\\neq": " ไม่เท่ากับ ", r"\\approx": " ประมาณ ",
+    }
+    _TEX_MATH = re.compile(r"\$+([^$]*)\$+")
+    _TEX_CMD = re.compile(r"\\[A-Za-z]+\s*")
+
+    def _strip_latex(self, text: str) -> str:
+        for pat, spoken in self._TEX_WORDS.items():
+            text = re.sub(pat + r"\b", spoken, text)
+        text = self._TEX_MATH.sub(r" \1 ", text)   # $x$ -> x
+        return self._TEX_CMD.sub(" ", text)         # any command left over
     # Emoji reach the model as characters it has no reading for, and it either
     # voices something arbitrary or stumbles. Assistants emit them constantly.
     # Ranges rather than a list: new emoji are added to Unicode every year.
@@ -214,6 +240,7 @@ class ThaiNormalizer:
 
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
+        text = self._strip_latex(text)
         text = self._EMPH_SHORT.sub(r"\1", text)
         # After the markers are gone, not before: `"เพ้อเจ้อ" (Verbose)` has a
         # quote sitting between the Thai and the bracket, and the gloss rule
@@ -343,6 +370,21 @@ class ThaiNormalizer:
             return None
 
         return walk(0, 0) or None
+
+    # A bare domain outside an address — `spm-plape.com` quoted in prose — is
+    # still spelled out, or the model reads it as an English word.
+    _BARE_DOMAIN = re.compile(r"\b([A-Za-z0-9][A-Za-z0-9.-]*)\.([A-Za-z]{2,3}(?:\.[a-z]{2})?)\b")
+
+    def _domains(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            full = m.group(0)
+            if "@" in full or full.lower().endswith((".v",)):
+                return full
+            tld = m.group(2).lower()
+            if tld not in self._TLD and tld not in {"com", "net", "org", "th", "io"}:
+                return full
+            return self._spell_domain(full)
+        return self._BARE_DOMAIN.sub(repl, text)
 
     def _emails(self, text: str) -> str:
         return self._EMAIL.sub(
@@ -495,6 +537,7 @@ class ThaiNormalizer:
         # Emails before the @ symbol rule, or the address is torn apart.
         text = self._emails(text)
         text = self._handles(text)    # after emails: user@host must not match first
+        text = self._domains(text)    # after both: neither is a bare domain
         # Phones before general numbers, or each block becomes a quantity.
         text = self._phones(text)
         # Abbreviations before numbers: "12 กม." must not lose its unit to the

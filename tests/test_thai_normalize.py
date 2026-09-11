@@ -545,3 +545,41 @@ class TestTransliteration:
         n = tn.ThaiNormalizer(lexicon={
             "abbreviations": {}, "symbols": {}, "words": {"container": "คอนเทนเนอร์"}})
         assert "คอนเทนเนอร์" in n.normalize("ระบบ container ทำงาน")
+
+
+class TestAbbreviationBoundaries:
+    """A Thai abbreviation ends at its period, and only there."""
+
+    @pytest.fixture
+    def ab(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {"น.": "นาฬิกา", "กม.": "กิโลเมตร"},
+            "symbols": {}, "words": {}})
+
+    def test_it_does_not_fire_mid_word(self, ab):
+        """`ชื่อต้น.นามสกุล` became `ชื่อต้นาฬิกานามสกุล` — silent corruption."""
+        assert "นาฬิกา" not in ab.normalize("รูปแบบ ชื่อต้น.นามสกุล ครับ")
+
+    def test_it_still_fires_where_it_should(self, ab):
+        assert "นาฬิกา" in ab.normalize("ตอนนี้เวลา 23:45 น.")
+        assert "กิโลเมตร" in ab.normalize("ระยะทาง 12 กม. ใช้เวลา")
+
+
+class TestLatex:
+    """Assistants emit LaTeX for arrows; spoken it is currency plus a word."""
+
+    @pytest.fixture
+    def tex(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"$": "ดอลลาร์"}, "words": {}})
+
+    def test_an_arrow_becomes_a_word(self, tex):
+        out = tex.normalize(r"อาจจะเป็น a $\rightarrow$ b")
+        assert "ถึง" in out
+        assert "ดอลลาร์" not in out and "rightarrow" not in out
+
+    def test_leftover_commands_are_removed(self, tex):
+        assert "\\" not in tex.normalize(r"สมการ $\alpha + \beta$ ครับ")
+
+    def test_a_real_dollar_still_speaks(self, tex):
+        assert "ดอลลาร์" in tex.normalize("ราคา $50")
