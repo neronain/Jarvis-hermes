@@ -439,6 +439,12 @@ class TestEnglishGloss:
     def test_numbers_in_parentheses_survive(self, g):
         assert "สอง" in g.normalize("ทั้งหมด (2) รายการ")
 
+    def test_a_gloss_is_found_across_a_closing_quote(self, g):
+        """`"เพ้อเจ้อ" (Verbose)` — a quote stands between the word and the bracket."""
+        out = g.normalize('ผม "เพ้อเจ้อ" (Verbose) เกินไป')
+        assert "Verbose" not in out
+        assert "เพ้อเจ้อ" in out
+
     def test_a_phrase_beats_a_word_that_means_something_else(self):
         """"line" reads as ไลน์ for a Line ID, which is wrong inside Command Line."""
         n = tn.ThaiNormalizer(lexicon={
@@ -466,8 +472,3 @@ class TestLinksAndAddresses:
 
     def test_transit_acronyms(self, a):
         assert "บีทีเอส" in a.normalize("ใกล้กับ BTS กรุงธนบุรี")
-
-    def test_a_gloss_is_found_across_a_closing_quote(self, g):
-        """`"เพ้อเจ้อ" (Verbose)` — the quote sits between the word and the bracket."""
-        assert "Verbose" not in g.normalize('ผม "เพ้อเจ้อ" (Verbose) เกินไป')
-        assert "เพ้อเจ้อ" in g.normalize('ผม "เพ้อเจ้อ" (Verbose) เกินไป')
