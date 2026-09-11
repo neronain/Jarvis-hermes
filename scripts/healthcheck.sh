@@ -34,6 +34,28 @@ chk "TTS sidecar"  "http://$NODE:$TTS_PORT/health"
 chk "node stats"   "http://$NODE:$STATS_PORT/stats"
 chk "hermes api"   "$HERMES/health" -H "Authorization: Bearer ${API_SERVER_KEY:-}"
 
+# The node's output rate, the host's voice.sample_rate and the HUD's TTS_RATE
+# have to be the same number. They are set in three different files, and when
+# they drift nothing errors — the voice simply plays at the wrong speed, which
+# reads as a bad model rather than as a bad config.
+SERVER_YAML="${JARVIS_SERVER_YAML:-$HOME/jarvis_ai/server/config/server.yaml}"
+HUD_HTML="${JARVIS_HUD_HTML:-$HOME/jarvis_ai/server/hud/index.html}"
+node_rate=$(curl -s -m 8 "http://$NODE:$TTS_PORT/health" \
+  | sed -n 's/.*"pcm_rate":[[:space:]]*\([0-9]*\).*/\1/p')
+host_rate=$(sed -n '/^voice:/,/^[a-z]/s/^[[:space:]]*sample_rate:[[:space:]]*\([0-9]*\).*/\1/p' \
+  "$SERVER_YAML" 2>/dev/null | head -1)
+hud_rate=$(sed -n 's/.*window\.TTS_RATE[[:space:]]*||[[:space:]]*\([0-9]*\).*/\1/p' \
+  "$HUD_HTML" 2>/dev/null | head -1)
+if [[ -n "$node_rate" && -n "$host_rate" && -n "$hud_rate" \
+      && "$node_rate" == "$host_rate" && "$host_rate" == "$hud_rate" ]]; then
+  printf '\033[32m✓\033[0m %-22s %s Hz everywhere\n' "audio rate" "$node_rate"
+  pass=$((pass+1))
+else
+  printf '\033[31m✗\033[0m %-22s node=%s host=%s hud=%s\n' \
+    "audio rate" "${node_rate:-?}" "${host_rate:-?}" "${hud_rate:-?}"
+  fail=$((fail+1))
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [[ "$fail" -eq 0 ]]

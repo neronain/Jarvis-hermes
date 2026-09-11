@@ -200,14 +200,53 @@ ffmpeg -i voices/jarvis_ref.wav -f s16le -ac 1 -ar 16000 - 2>/dev/null \
 
 ## เสียงพูดเร็วหรือช้าผิดปกติ เหมือนเทปยืด
 
-`JARVIS_TTS_PCM_RATE` บน node ไม่ตรงกับ `voice.sample_rate` ฝั่ง host
+มี **สาม** ค่าที่ต้องเท่ากัน ไม่ใช่สอง — และเวลาไม่ตรงจะไม่มี error ใด ๆ
+เสียงแค่เล่นผิดความเร็ว ซึ่งฟังเหมือนโมเดลแย่ ไม่เหมือน config ผิด
 
 ```bash
-curl -s http://100.113.214.111:8769/health | grep pcm_rate
-grep sample_rate <jarvis_ai>/server/config/server.yaml
+./scripts/healthcheck.sh 100.113.214.111   # บรรทัด "audio rate"
 ```
 
-สองค่านี้ต้องเท่ากัน
+| ที่ | ค่า |
+|---|---|
+| GPU node | `JARVIS_TTS_PCM_RATE` ใน `gpu-node/.env` |
+| host | `voice.sample_rate` ใน `server/config/server.yaml` |
+| HUD | `window.TTS_RATE` ใน `server/hud/index.html` (ใส่โดย `apply_voicemode.py`) |
+
+ปัจจุบันทั้งสามเป็น **24000** — อัตราที่ F5-TTS สร้างออกมาเอง
+
+## agent พูด "ครับ" / "อืม" / "รับทราบ" เองทั้งที่ยังไม่มีใครพูด
+
+สองสาเหตุ คนละชั้นกัน:
+
+**1. คลิปรับทราบเล่นเร็วเกินไป** — เคยเล่นทันทีที่ส่งเทิร์น ก่อนรู้ว่ามีเทิร์นจริง
+ไหม · ดู [PERFORMANCE.md](PERFORMANCE.md#คำรับทราบ--ตอนนี้รอก่อน) · ปรับได้ที่
+`VAD.ackDelayMs` (localStorage `jarvisVad`)
+
+**2. Whisper แต่งข้อความจากความเงียบ** — โมเดลไม่คืน "ไม่มีอะไร" ให้คลิปที่ไม่มี
+อะไร มันเขียนสิ่งที่คนน่าจะพูดที่สุด ซึ่งในภาษาไทยคือคำลงท้าย · ครั้งหนึ่งคลิป
+เสียงรบกวนกลับมาเป็น `"เติมมาเตือน"` ซึ่งไม่ใช่ประโยคในภาษาใดเลย
+
+STT sidecar จึงปฏิเสธ transcript ที่ตัวเองไม่เชื่อ จากสัญญาณอิสระสามอย่าง:
+
+| ตัวแปร | ค่าเริ่มต้น | ตัดเมื่อ |
+|---|---|---|
+| `JARVIS_STT_NO_SPEECH_MAX` | 0.6 | Whisper บอกเองว่านี่ไม่ใช่เสียงพูด |
+| `JARVIS_STT_MIN_LOGPROB` | -1.0 | decoder ไม่มั่นใจในสิ่งที่ตัวเองเขียน |
+| `JARVIS_STT_DROP_FILLER` | 1 | ทั้งประโยคเป็นคำลงท้ายเปล่า ๆ |
+
+อันที่สามคือ *backchannel* — ผู้ฟังพยักหน้ารับ · ตอบมันกลับไปคือการขัดจังหวะ
+เทิร์นที่มันกำลังรับอยู่ · คลิปที่ถูกตัดคืน `text: ""` (voice server ทิ้ง
+transcript ว่างอยู่แล้ว) พร้อมฟิลด์ `dropped` บอกเหตุผล และนับใน `/health`
+
+ดูว่าตัดอะไรไปบ้าง (ข้อความที่ถูกตัดจะอยู่ใน log เท่านั้น ไม่ส่งกลับ):
+
+```bash
+ssh rtx4000 'journalctl --user -u jarvis-stt -n 50 | grep dropped'
+```
+
+ถ้าตัดของจริงทิ้งบ่อย ให้ลด `JARVIS_STT_NO_SPEECH_MAX` ลง หรือปิด
+`JARVIS_STT_DROP_FILLER=0`
 
 ---
 
