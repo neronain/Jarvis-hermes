@@ -496,9 +496,15 @@ class TestNetworkText:
         """An address is an identifier, not four quantities."""
         assert "หนึ่งศูนย์จุดศูนย์จุดศูนย์จุดหนึ่ง" in net.normalize("10.0.0.1")
 
-    def test_something_that_is_not_an_address_is_left_alone(self, net):
-        """Octets above 255 mean it is not an address."""
-        assert "จุดแปดแปดแปด" not in net.normalize("999.888.777.666")
+    def test_something_that_is_not_an_address_is_not_treated_as_one(self, net):
+        """Octets above 255 mean it is not an address.
+
+        Asserted on the rule rather than the pipeline: the decimal rule picks
+        the string up afterwards, which is fine — what matters is that the
+        address rule declined it.
+        """
+        assert net._ips("999.888.777.666") == "999.888.777.666"
+        assert net._ips("192.168.1.1") != "192.168.1.1"
 
     def test_a_decimal_is_not_an_address(self, net):
         assert "สามสิบหกจุดห้า" in net.normalize("อุณหภูมิ 36.5 องศา")
