@@ -8,11 +8,16 @@ unmodified. Differences from upstream:
 - Linux/CUDA only — no Windows ``add_dll_directory`` shim.
 - Defaults to ``large-v3`` and Thai, with ``language=auto`` still available.
 - Reports decode timing and a rolling error count on ``/health`` for the HUD.
+- Refuses to hand back a transcript it does not believe (see "the silence
+  gate" below), because the caller turns every transcript into a spoken reply.
 
 API
 ---
 GET  /health -> {"status":"ok", ...}
-POST /stt    -> {"text": "...", "language": "th", "duration": 1.9, "latency": 0.21}
+POST /stt    -> {"text": "...", "language": "th", "duration": 1.9, "latency": 0.21,
+                 "dropped": null, "no_speech_prob": 0.02, "avg_logprob": -0.31}
+       ``text`` is "" and ``dropped`` names the reason when the gate rejects
+       the clip; callers that already skip an empty transcript need no change.
        body:    raw little-endian int16 PCM, mono, 16 kHz
        headers: X-Jarvis-Token, optional X-Jarvis-Language to override per request
 
@@ -46,9 +51,59 @@ LANGUAGE = os.environ.get("JARVIS_STT_LANGUAGE", "th")
 BEAM_SIZE = int(os.environ.get("JARVIS_STT_BEAM", "5"))
 VAD_FILTER = os.environ.get("JARVIS_STT_VAD", "1") == "1"
 
+# --- the silence gate -------------------------------------------------------
+#
+# Whisper does not return "nothing" for a clip with nothing in it. Handed room
+# tone, a keyboard, or a breath, it invents the most likely thing a person
+# would have said — and in Thai that is a short politeness particle. The
+# assistant then answers it, so the room hears the agent say "ครับ" or "อืม" to
+# a user who has not spoken. From a live session: a clip of noise came back as
+# "เติมมาเตือน", which is not a sentence at all.
+#
+# Two independent signals, because either alone is wrong:
+#
+#   no_speech_prob  Whisper's own estimate that the segment is not speech.
+#                   High and the audio was never speech, whatever the decoder
+#                   wrote down.
+#   avg_logprob     how sure the decoder is of what it wrote. An invented
+#                   sentence scores far below a heard one.
+#
+# and a text test for the specific case both miss: clean audio of the user
+# saying only "ครับ". That is backchannel — the listener acknowledging the
+# speaker — and answering it interrupts the very turn it was acknowledging.
+NO_SPEECH_MAX = float(os.environ.get("JARVIS_STT_NO_SPEECH_MAX", "0.6"))
+MIN_LOGPROB = float(os.environ.get("JARVIS_STT_MIN_LOGPROB", "-1.0"))
+DROP_FILLER = os.environ.get("JARVIS_STT_DROP_FILLER", "1") == "1"
+
+# Bare acknowledgements, and the phrases Whisper reaches for when a Thai clip
+# holds no speech at all. Only ever matched against the WHOLE transcript:
+# "ครับ" alone is backchannel, "ครับ ผมเข้าใจแล้ว" is a turn.
+_FILLER = {
+    "ครับ", "ครับผม", "คร้าบ", "ค่ะ", "คะ", "ค่า", "จ้า", "จ้ะ", "ฮะ", "ฮ่ะ",
+    "อืม", "อืมม", "อือ", "อ่า", "เอ่อ", "เออ", "อ่าฮะ", "อ๋อ",
+    "โอเค", "ok", "okay", "อ่ะ", "นะ", "นะครับ", "นะคะ",
+    # Whisper's stock Thai hallucinations for silence.
+    "ขอบคุณครับ", "ขอบคุณค่ะ", "สวัสดีครับ", "สวัสดีค่ะ",
+    "ขอบคุณที่รับชม", "ขอบคุณสำหรับการรับชม",
+}
+_PUNCT = " \t\r\n.,!?ๆฯ\u0e46\u2026\"'"
+
+
+def _is_filler(text: str) -> bool:
+    """True when the whole transcript is one bare acknowledgement."""
+    t = text.strip(_PUNCT).lower()
+    if not t:
+        return True
+    if t in _FILLER:
+        return True
+    # "ครับ ครับ", "อืม อืม" — the same particle repeated is still nothing said.
+    parts = [w for w in t.replace(",", " ").split() if w]
+    return bool(parts) and len(parts) <= 3 and all(w.strip(_PUNCT) in _FILLER for w in parts)
+
 _model = None
 _lock = threading.Lock()
-_stats = {"requests": 0, "errors": 0, "audio_seconds": 0.0, "decode_seconds": 0.0}
+_stats = {"requests": 0, "errors": 0, "audio_seconds": 0.0, "decode_seconds": 0.0,
+          "dropped": 0}
 
 
 def _preload_cuda_libs() -> None:
@@ -172,7 +227,8 @@ async def stt(request: Request):
                 vad_filter=VAD_FILTER,
                 condition_on_previous_text=False,
             )
-            text = "".join(seg.text for seg in segments).strip()
+            segs = list(segments)
+            text = "".join(seg.text for seg in segs).strip()
     except Exception as exc:
         _stats["errors"] += 1
         LOG.exception("transcription failed")
@@ -182,13 +238,38 @@ async def stt(request: Request):
     _stats["requests"] += 1
     _stats["audio_seconds"] += duration
     _stats["decode_seconds"] += elapsed
-    LOG.info("stt %.2fs audio -> %d chars in %.2fs", duration, len(text), elapsed)
+
+    no_speech = max((getattr(x, "no_speech_prob", 0.0) or 0.0) for x in segs) if segs else 1.0
+    logprob = (sum((getattr(x, "avg_logprob", 0.0) or 0.0) for x in segs) / len(segs)
+               if segs else 0.0)
+
+    dropped = None
+    if not text:
+        dropped = "empty"
+    elif no_speech >= NO_SPEECH_MAX:
+        dropped = "no_speech"
+    elif logprob <= MIN_LOGPROB:
+        dropped = "low_confidence"
+    elif DROP_FILLER and _is_filler(text):
+        dropped = "backchannel"
+
+    if dropped and dropped != "empty":
+        _stats["dropped"] += 1
+        # The rejected text is logged, never returned: it is the only way to
+        # tune the thresholds, and returning it would defeat the gate.
+        LOG.info("stt dropped (%s) %.2fs no_speech=%.2f logprob=%.2f: %r",
+                 dropped, duration, no_speech, logprob, text[:80])
+    else:
+        LOG.info("stt %.2fs audio -> %d chars in %.2fs", duration, len(text), elapsed)
 
     return {
-        "text": text,
+        "text": "" if dropped else text,
         "language": getattr(info, "language", language),
         "duration": round(duration, 3),
         "latency": round(elapsed, 3),
+        "dropped": dropped,
+        "no_speech_prob": round(no_speech, 3),
+        "avg_logprob": round(logprob, 3),
     }
 
 

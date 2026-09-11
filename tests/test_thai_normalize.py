@@ -711,3 +711,35 @@ class TestAddresses:
 
     def test_a_house_number_keeps_its_slash(self, a):
         assert "ทับ" in a.normalize("ที่อยู่ 1015/2 ถนนสุขุมวิท")
+
+
+class TestSilenceGate:
+    """Whisper answers a clip of silence with a politeness particle, and the
+    assistant then says "ครับ" to a user who has not spoken."""
+
+    @staticmethod
+    def _is_filler():
+        import re as _re, os as _os
+        src = (ROOT / "gpu-node" / "stt_server.py").read_text(encoding="utf-8")
+        blk = src[src.index("NO_SPEECH_MAX"):src.index("_model = None")]
+        ns = {"os": _os, "re": _re}
+        exec(compile(blk, "stt_server", "exec"), ns, ns)
+        return ns["_is_filler"]
+
+    @pytest.mark.parametrize("text", [
+        "ครับ", "ค่ะ", "อืม", "โอเค", "นะครับ", "ok",
+        "ครับๆ", "ค่ะ.", "ครับ ครับ",
+        "ขอบคุณครับ",     # Whisper's stock output for a silent Thai clip
+        "", "   ",
+    ])
+    def test_nothing_was_said(self, text):
+        assert self._is_filler()(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "ครับ ผมเข้าใจแล้ว",        # a particle opening a real turn
+        "สวัสดี พร้อมทำงานไหม",
+        "เติมมาเตือน",              # gibberish — the acoustic gates catch this one
+        "โอเค งั้นเริ่มเลยครับ",
+    ])
+    def test_something_was_said(self, text):
+        assert self._is_filler()(text) is False
