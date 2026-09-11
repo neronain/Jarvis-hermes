@@ -317,6 +317,71 @@ registerProcessor("pcm16k",PCM16K);`;
     $("approvals").appendChild(card);
   }
 
+  /* ─────────────────────── summoned panels ──────────────────────── */
+
+  /* The agent can put something on the HUD mid-conversation — a map, a feed,
+     an image — by POSTing /api/map or /api/summon. It takes the transcript's
+     place rather than floating over it: a map is something you look at, and
+     half a conversation showing through helps nobody. The ✕ puts the
+     conversation back, and nothing was lost while it was away. */
+  const MODE_LABEL = {
+    satellite: "ดาวเทียม", roadmap: "แผนที่", earth: "3 มิติ",
+    streetview: "สตรีทวิว", directions: "เส้นทาง",
+  };
+
+  function summonPanel(e) {
+    const body = $("panelBody"); if (!body) return;
+    $("panelTitle").textContent = e.title || "แผนที่";
+    $("panelMode").textContent = MODE_LABEL[e.mode] || (e.media || "").toUpperCase();
+    const src = e.src || "";
+    if (e.media === "image") {
+      body.innerHTML = '<img alt="' + esc(e.title || "") + '" src="' + esc(src) + '">';
+    } else if (e.media === "video") {
+      body.innerHTML = '<video controls autoplay playsinline src="' + esc(src) + '"></video>';
+    } else if (!src) {
+      body.innerHTML = '<div class="msg-empty"><div><b>ไม่มีอะไรจะแสดง</b>' +
+        'คำสั่งมาถึงแล้วแต่ไม่มี src</div></div>';
+    } else {
+      // allow-scripts is what the Maps Embed API needs; the frame gets no
+      // access to this page, which is the point of listing them one at a time.
+      body.innerHTML = '<iframe src="' + esc(src) + '" loading="lazy" ' +
+        'referrerpolicy="no-referrer-when-downgrade" ' +
+        'sandbox="allow-scripts allow-same-origin allow-popups" ' +
+        'allow="fullscreen" title="' + esc(e.title || "panel") + '"></iframe>';
+    }
+    $("chatCard").hidden = true;
+    $("stagePanel").hidden = false;
+  }
+
+  function dismissPanel() {
+    const p = $("stagePanel");
+    if (!p || p.hidden) return;
+    p.hidden = true;
+    $("panelBody").innerHTML = "";     // stop whatever was playing or polling
+    $("chatCard").hidden = false;
+  }
+
+  /* Typed "แผนที่ <ที่ไหน>" is a shortcut past the agent, for when you just
+     want to look at somewhere. */
+  const MAP_PREFIX = /^\s*(?:แผนที่|map|ดาวเทียม|satellite|earth|โลก3มิติ|3d)\s+(.+)$/i;
+
+  async function requestMap(q, mode) {
+    try {
+      const r = await fetch("/api/map", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ q, mode: mode || "satellite" }),
+      });
+      const j = await r.json();
+      if (j.error) {
+        $("panelTitle").textContent = q;
+        $("panelMode").textContent = "";
+        $("panelBody").innerHTML = '<div class="msg-empty"><div><b>เปิดแผนที่ไม่ได้</b>' +
+          esc(j.error) + "</div></div>";
+        $("chatCard").hidden = true; $("stagePanel").hidden = false;
+      }
+    } catch (err) { addMsg("sys", "เรียกแผนที่ไม่สำเร็จ: " + err.message); }
+  }
+
   /* ───────────────────────────── websocket ───────────────────────── */
 
   function connect() {
@@ -334,6 +399,8 @@ registerProcessor("pcm16k",PCM16K);`;
       if (ev.data instanceof ArrayBuffer) { playChunk(ev.data); return; }
       let e; try { e = JSON.parse(ev.data); } catch (err) { return; }
       switch (e.type) {
+        case "summon_panel": summonPanel(e); break;
+        case "dismiss_panels": dismissPanel(); break;
         case "partial_transcript": showLive(e.text); break;
         case "transcript": clearLive(); if (e.text) addMsg("me", e.text); break;
         case "run_started": S.currentRun = e.run_id; $("stopBtn").hidden = false; break;
@@ -441,6 +508,13 @@ registerProcessor("pcm16k",PCM16K);`;
      the websocket instead, which is why these two paths look different. */
   async function sendText(text) {
     if (!text) return;
+    const m = text.match(MAP_PREFIX);
+    if (m) {
+      addMsg("me", text);
+      const mode = /earth|3d|โลก3มิติ/i.test(text) ? "earth"
+        : /ดาวเทียม|satellite/i.test(text) ? "satellite" : "satellite";
+      return requestMap(m[1].trim(), mode);
+    }
     addMsg("me", text);
     setState("thinking", "กำลังคิด…");
     try {
@@ -741,6 +815,7 @@ registerProcessor("pcm16k",PCM16K);`;
     $("coreBtn").onclick = toggleHandsFree;
     $("micring").parentElement.onclick = () => { if (!S.handsFree) pushToTalk(); };
     $("stopBtn").onclick = stopRun;
+    $("panelClose").onclick = dismissPanel;
     document.querySelectorAll(".nav button[data-goto]").forEach((b) => {
       b.onclick = () => showView(b.dataset.goto);
     });
@@ -762,6 +837,7 @@ registerProcessor("pcm16k",PCM16K);`;
     });
     addEventListener("keydown", (e) => {
       if (e.code === "Space" && e.target === document.body) { e.preventDefault(); pushToTalk(); }
+      if (e.key === "Escape" && !$("stagePanel").hidden) { dismissPanel(); return; }
       if (e.key === "Escape" && !$("stopBtn").hidden) stopRun();
     });
     const clock = $("clock");

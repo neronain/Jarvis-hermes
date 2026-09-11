@@ -140,6 +140,68 @@ server:
   local_name: "HERMES · ORB VM"
 ```
 
+## แผนที่ — Google Maps / Earth
+
+### สิ่งที่ค้นแล้วพบ (และมันเปลี่ยนวิธีออกแบบ)
+
+**`earth.google.com` ฝังใน iframe ไม่ได้** — ตอบกลับมาด้วย
+`x-frame-options: SAMEORIGIN` (ยิงเช็กกับของจริงแล้ว) ดังนั้น iframe ที่ชี้ไปหามัน
+จะว่างเปล่า ไม่ว่าจะจัดวางยังไงก็ตาม
+
+หน้าที่ลิงก์มา (`developers.google.com/maps/documentation/earth`) เป็น**คู่มือผู้ใช้**
+ของ Google Earth — เรื่อง project, KML, Street View — **ไม่ใช่ API สำหรับฝัง**
+
+ทางที่ใช้ได้จริงมีสองทาง:
+
+| | ใช้ทำอะไร | ต้องมี |
+|---|---|---|
+| **Maps Embed API** `/maps/embed/v1/*` | ฝัง iframe ได้ (ตรวจแล้วว่าไม่ส่ง X-Frame-Options) · `maptype=satellite` คือภาพดาวเทียมชุดเดียวกับที่คนเรียกว่า Google Earth | API key |
+| **Maps JavaScript API — `maps3d`** | โลก 3 มิติเอียงได้จริง ผ่าน `<gmp-map-3d>` ในหน้าที่เราเสิร์ฟเอง (`hud/earth3d.html`) | API key + Map Tiles API + ผูกบัญชีเรียกเก็บเงิน |
+
+### ตั้งค่า
+
+```bash
+# ~/.hermes/.env
+JARVIS_MAPS_API_KEY=AIza...
+```
+
+สร้างคีย์ที่ console.cloud.google.com → เปิด **Maps Embed API** (และ **Map Tiles
+API** ถ้าจะใช้ 3 มิติ) → จำกัดคีย์ด้วย HTTP referrer ของ host นี้ · แล้ว
+`systemctl --user restart jarvis-voice`
+
+> ยังไม่ใส่คีย์ก็ใช้งานได้ — แผงจะขึ้นมาพร้อมข้อความบอกว่าต้องทำอะไร ไม่ใช่ iframe ว่าง
+
+### เรียกใช้
+
+```bash
+curl -s -X POST http://127.0.0.1:8765/api/map \
+  -H 'Content-Type: application/json' \
+  -d '{"q":"อนุสาวรีย์ชัยสมรภูมิ","mode":"satellite"}'
+```
+
+| mode | ผล |
+|---|---|
+| `satellite` | ภาพดาวเทียม (ค่าเริ่มต้น) |
+| `roadmap` | แผนที่ถนน |
+| `earth` | โลก 3 มิติ หมุนช้า ๆ |
+| `streetview` | สตรีทวิว |
+| `directions` | เส้นทาง (ต้องมี `origin` และ `destination`) |
+| `{"action":"dismiss"}` | ปิดแผง |
+
+ในหน้า HUD พิมพ์ `แผนที่ <ที่ไหน>` ก็ได้ — เป็นทางลัดข้ามเอเจนต์ไปเลย
+
+**ปุ่ม ✕ มุมขวา** (หรือ Esc) ปิดแผนที่แล้วกลับไปที่บทสนทนา — บทสนทนาไม่หายไปไหน
+มันแค่ถูกซ่อนไว้
+
+### ทำไม `/api/map` ไม่ต้องใช้ token เมื่อเรียกจาก localhost
+
+เอเจนต์รันอยู่บนเครื่องเดียวกันและเรียกผ่าน terminal tool · ถ้าบังคับให้ส่ง token
+ก็ต้องเอา token ไปใส่ใน prompt ซึ่งจะไปโผล่ใน log และ transcript
+
+**ปลอดภัยเพราะการออกแบบ ไม่ใช่เพราะความไว้ใจ** — `/api/map` **ไม่รับ URL** มันรับแค่
+ชื่อสถานที่ แล้วประกอบ URL จากเทมเพลตของเราเอง สิ่งที่แย่ที่สุดที่โปรเซสในเครื่อง
+จะทำได้คือแสดงสถานที่ผิด · คีย์อยู่ฝั่งเซิร์ฟเวอร์ เอเจนต์ไม่เคยเห็น
+
 ## API (ต้องมี auth)
 
 HTTP API รับ token จาก **cookie หรือ header `X-Jarvis-Token`** เท่านั้น —

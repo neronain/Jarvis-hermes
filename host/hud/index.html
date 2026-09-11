@@ -176,6 +176,28 @@ body::before{
 .composer input{flex:1;min-width:0;background:rgba(5,6,15,.6);border:1px solid var(--stroke);
   border-radius:12px;padding:10px 13px;color:var(--ink-hi);font-family:var(--f-thai);font-size:13px}
 .composer input::placeholder{color:var(--faint)}
+
+/* ── summoned panel (maps, feeds) ─────────────────────────── */
+.stagepanel > h2{margin-bottom:10px}
+.panelx{
+  margin-left:10px;background:rgba(146,174,255,.06);border:1px solid var(--stroke);
+  color:var(--ink-hi);border-radius:9px;width:26px;height:26px;line-height:1;
+  font-size:12px;cursor:pointer;flex:none;padding:0;
+}
+.panelx:hover{border-color:var(--crit);color:var(--crit)}
+.panelbody{
+  height:clamp(340px, 62vh, 760px);border-radius:12px;overflow:hidden;
+  border:1px solid var(--stroke);background:var(--void);
+}
+.panelbody iframe{width:100%;height:100%;border:0;display:block}
+.panelbody img,.panelbody video{width:100%;height:100%;object-fit:contain;display:block}
+.panelbody .msg-empty{
+  display:grid;place-items:center;height:100%;padding:22px;text-align:center;
+  font-family:var(--f-thai);font-size:13px;line-height:1.8;color:var(--mute);
+}
+.panelbody .msg-empty b{display:block;color:var(--ink-hi);font-size:15px;margin-bottom:8px}
+.panelbody code{font-family:var(--f-num);font-size:11.5px;color:var(--cyan);
+  background:rgba(53,232,255,.09);padding:2px 6px;border-radius:5px}
 .btn{background:rgba(146,174,255,.06);border:1px solid var(--stroke);border-radius:12px;
   color:var(--ink-hi);font:inherit;font-size:12px;padding:8px 14px;cursor:pointer}
 .btn.ok{color:var(--ok);border-color:currentColor}
@@ -317,7 +339,7 @@ body::before{
 
     <!-- CENTRE — what is happening -->
     <div class="stage">
-      <div class="card">
+      <div class="card" id="chatCard">
         <h2>บทสนทนา<span class="tag">LIVE</span>
           <button class="btn stop" id="stopBtn" hidden style="margin-left:8px;padding:3px 10px;font-size:10.5px">หยุด</button>
         </h2>
@@ -328,6 +350,14 @@ body::before{
         <div class="composer">
           <input id="textInput" type="text" placeholder="พิมพ์ก็ได้ กด Enter เพื่อส่ง" autocomplete="off">
         </div>
+      </div>
+
+      <div class="card stagepanel" id="stagePanel" hidden>
+        <h2><span id="panelTitle">แผนที่</span>
+          <span class="tag" id="panelMode"></span>
+          <button class="panelx" id="panelClose" aria-label="ปิดแผนที่ กลับไปที่บทสนทนา">✕</button>
+        </h2>
+        <div class="panelbody" id="panelBody"></div>
       </div>
 
       <div class="card mic" id="micCard">

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Earth 3D</title>
+<style>
+/* Photorealistic 3D — the Maps JavaScript API's maps3d library, not an iframe
+   of earth.google.com. Earth itself answers with x-frame-options: SAMEORIGIN
+   and cannot be embedded at all; this renders the same globe in a page we
+   serve, which is the supported way to get it. */
+html,body{margin:0;height:100%;background:#05060f;color:#c9d4f2;
+  font-family:"IBM Plex Sans Thai",system-ui,sans-serif}
+gmp-map-3d{display:block;width:100%;height:100%}
+.msg{display:grid;place-items:center;height:100%;padding:24px;text-align:center;
+  font-size:13.5px;line-height:1.8}
+.msg code{font-family:ui-monospace,monospace;font-size:12px;color:#35e8ff;
+  background:rgba(53,232,255,.09);padding:2px 6px;border-radius:5px}
+.msg b{display:block;color:#eef3ff;font-size:15px;margin-bottom:8px}
+</style>
+</head>
+<body>
+<div id="host" class="msg"><b>กำลังโหลดโลก 3 มิติ…</b></div>
+<script>
+(async function () {
+  const p = new URLSearchParams(location.search);
+  const host = document.getElementById("host");
+  const fail = (title, detail) => {
+    host.className = "msg";
+    host.innerHTML = "<div><b>" + title + "</b>" + (detail || "") + "</div>";
+  };
+
+  let key;
+  try {
+    const r = await fetch("/api/mapkey");
+    const j = await r.json();
+    if (!r.ok || !j.key) throw new Error(j.error || "no key");
+    key = j.key;
+  } catch (e) {
+    return fail("ยังไม่ได้ตั้งค่า Google Maps API key",
+      "ใส่ <code>JARVIS_MAPS_API_KEY</code> ใน <code>~/.hermes/.env</code> " +
+      "แล้ว restart <code>jarvis-voice</code><br>" +
+      "สร้างคีย์ที่ console.cloud.google.com โดยเปิด Map Tiles API สำหรับ 3 มิติ");
+  }
+
+  // A place name has to become a coordinate before the globe can fly to it.
+  let lat = parseFloat(p.get("lat")), lng = parseFloat(p.get("lng"));
+  if (!isFinite(lat) || !isFinite(lng)) {
+    const q = p.get("q");
+    if (!q) return fail("ไม่มีพิกัดหรือชื่อสถานที่");
+    try {
+      const r = await fetch("https://maps.googleapis.com/maps/api/geocode/json?address=" +
+        encodeURIComponent(q) + "&language=th&key=" + key);
+      const j = await r.json();
+      const loc = j.results && j.results[0] && j.results[0].geometry.location;
+      if (!loc) throw new Error(j.error_message || j.status || "ไม่พบสถานที่");
+      lat = loc.lat; lng = loc.lng;
+    } catch (e) {
+      return fail("หาพิกัดไม่เจอ", String(e.message || e));
+    }
+  }
+
+  // Google's own loader snippet, kept verbatim so it keeps working when they
+  // change what "weekly" points at.
+  (g => {
+    let h, a, u, d = "The Google Maps JavaScript API", c = "google", l = "importLibrary",
+        q = "__ib__", m = document, b = window;
+    b = b[c] || (b[c] = {});
+    const f = b.maps || (b.maps = {}), r = new Set(), e = new URLSearchParams(),
+      n = () => h || (h = new Promise(async (s, j) => {
+        a = m.createElement("script");
+        e.set("libraries", [...r] + "");
+        for (u in g) e.set(u.replace(/[A-Z]/g, t => "_" + t[0].toLowerCase()), g[u]);
+        e.set("callback", c + ".maps." + q);
+        a.src = `https://maps.${c}apis.com/maps/api/js?` + e;
+        f[q] = s; a.onerror = () => h = j(Error(d + " could not load."));
+        m.head.append(a);
+      }));
+    f[l] ? console.warn(d + " only loads once.") : f[l] = (s, ...i) => r.add(s) && n().then(() => f[l](s, ...i));
+  })({ key, v: "weekly" });
+
+  try {
+    await google.maps.importLibrary("maps3d");
+  } catch (e) {
+    return fail("โหลด maps3d ไม่สำเร็จ",
+      "ตรวจว่าเปิด <code>Map Tiles API</code> และผูกบัญชีเรียกเก็บเงินแล้ว");
+  }
+
+  const map = document.createElement("gmp-map-3d");
+  map.setAttribute("center", `${lat},${lng},250`);
+  map.setAttribute("range", "1200");
+  map.setAttribute("tilt", "62");
+  map.setAttribute("heading", "18");
+  map.setAttribute("mode", "hybrid");
+  host.className = "";
+  host.innerHTML = "";
+  host.appendChild(map);
+
+  // A slow orbit, so a still photograph reads as a place rather than a texture.
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    let heading = 18;
+    setInterval(() => {
+      heading = (heading + 0.08) % 360;
+      map.setAttribute("heading", heading.toFixed(2));
+    }, 60);
+  }
+})();
+</script>
+</body>
+</html>
