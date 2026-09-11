@@ -50,6 +50,28 @@ _TH_DAYS = ["วันจันทร์", "วันอังคาร", "ว�
             "วันเสาร์", "วันอาทิตย์"]
 _TURN_CONTEXT_SENT: set = set()
 
+# A voice session is not a document. This one grew to 395 messages over two
+# days and every turn paid prefill on all of it: measured, ~46k input tokens a
+# turn, and time-to-first-audio drifted from 1.9 s to between 3 and 27 s. The
+# replies were never missing — the turn log shows interrupted:0 and a first
+# audio byte for every one of them. They were just late enough that a person
+# concludes nothing is happening and reaches for the button.
+#
+# So the session is rotated rather than left to grow. Long-term memory belongs
+# in the vault, which is durable and searchable; a spoken conversation needs
+# the last few minutes, not the last two days.
+SESSION_MAX_TURNS = int(os.environ.get("JARVIS_SESSION_MAX_TURNS", "40"))
+_SESSION_TURNS: dict = {}
+
+
+def session_needs_rotation(conversation: str) -> bool:
+    n = _SESSION_TURNS.get(conversation, 0) + 1
+    _SESSION_TURNS[conversation] = n
+    if SESSION_MAX_TURNS > 0 and n > SESSION_MAX_TURNS:
+        _SESSION_TURNS[conversation] = 0
+        return True
+    return False
+
 
 def _now_line() -> str:
     """The real wall clock, in the words the answer will use."""
@@ -88,6 +110,10 @@ CALL_NEW = '''        timeout = float(h.get("timeout", 240))
         # --- jarvis-hermes: turn context ---
         # The agent is told what today is, and (once per session) how to speak
         # for a voice channel. Both were configured and neither was ever sent.
+        if session_needs_rotation(conversation):
+            session_id = self.hermes.get_session_id(conversation, force_new=True)
+            print(f"voice session rotated after {SESSION_MAX_TURNS} turns "
+                  f"-> {session_id}", flush=True)
         transcript = build_turn_context(self.cfg, session_id) + "\\n" + transcript
         try:
             it = self.hermes.chat_stream_events(session_id, transcript, timeout)'''

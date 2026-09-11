@@ -43,7 +43,7 @@
     agentBusy: false, lastAudioAt: 0,
     level: 0, turns: 0, currentRun: null,
     lastFrameAt: 0, recovering: false,
-    camStream: null, camFacing: "environment",
+    camStream: null, camFacing: "environment", waitTimer: null,
     preroll: [], ackBuffers: [], ackTimer: null,
     latency: [], liveEl: null,
     uiState: "standby",
@@ -302,7 +302,29 @@ registerProcessor("pcm16k",PCM16K);`;
     tool: "กำลังทำงาน", speaking: "กำลังพูด",
   };
 
+  /* Three seconds of silence after the acknowledgement and a person assumes
+     they were not heard. The turn log says otherwise — every turn answered,
+     none interrupted — but time to first audio runs from three seconds to
+     twenty-seven when the session is long or a tool is involved, and nothing
+     on screen or in the room said so. Now the wait counts itself. */
+  function startWaitClock() {
+    stopWaitClock();
+    const began = performance.now();
+    S.waitTimer = setInterval(() => {
+      const sec = Math.round((performance.now() - began) / 1000);
+      const h = $("stateHint");
+      if (h) h.textContent = sec < 4 ? "กำลังคิด…" : "กำลังคิด… " + sec + " วินาที";
+      const b = $("waitBadge");
+      if (b) { b.hidden = sec < 4; b.textContent = sec + "s"; }
+    }, 500);
+  }
+  function stopWaitClock() {
+    if (S.waitTimer) { clearInterval(S.waitTimer); S.waitTimer = null; }
+    const b = $("waitBadge"); if (b) b.hidden = true;
+  }
+
   function setState(st, hint) {
+    if (st === "thinking" || st === "tool") startWaitClock(); else stopWaitClock();
     S.uiState = st;
     S.agentBusy = (st === "thinking" || st === "tool" || st === "speaking");
     if (st === "standby") cancelAck();
@@ -1133,6 +1155,18 @@ registerProcessor("pcm16k",PCM16K);`;
     });
     if (reduce) { drawOrb(); drawMic(); } else requestAnimationFrame(frame);
   }
+
+  /* A handle for diagnosing the detector from the console, because the last
+     two bugs in here were both invisible from the outside. Read-only in
+     spirit: nothing in the app reads it back. */
+  window.JARVIS = {
+    S, vad,
+    frame: (lvl) => vad.frame(lvl),
+    state: () => Object.assign({}, vad.state(), {
+      capturing: S.capturing, handsFree: S.handsFree, agentBusy: S.agentBusy,
+      wsReady: S.wsReady, preroll: S.preroll.length, uiState: S.uiState,
+    }),
+  };
 
   if (document.readyState === "loading") addEventListener("DOMContentLoaded", boot);
   else boot();
