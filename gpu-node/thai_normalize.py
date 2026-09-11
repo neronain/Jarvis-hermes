@@ -256,7 +256,7 @@ class ThaiNormalizer:
     # lookbehind is fixed-width, so it cannot step over one.
     _EN_GLOSS = re.compile(
         r"([\u0E00-\u0E7F])[\s\"'*`\u201c\u201d\u2018\u2019]*"
-        r"\(\s*[A-Za-z][A-Za-z0-9 &/\-.'\u2019]*\)")
+        r"\(\s*[A-Za-z][A-Za-z0-9 &/\-.,'\u2019]*\)")
 
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
@@ -326,8 +326,20 @@ class ThaiNormalizer:
         for tld, spoken in sorted(self._TLD.items(), key=lambda kv: -len(kv[0])):
             if domain.lower().endswith("." + tld):
                 head = domain[: -(len(tld) + 1)]
-                return self._spell_token(head) + " " + spoken
-        return " ดอท ".join(self._spell_token(part) for part in domain.split("."))
+                return self._spell_host(head) + " " + spoken
+        return self._spell_host(domain)
+
+    def _spell_host(self, host: str) -> str:
+        """Every separator inside a host name is spoken.
+
+        The head of a domain is not one token. `shop.veerasiam-g` handed to
+        _spell_token whole matched nothing and came back unchanged — and the
+        later lexicon pass then found the bare word `shop` sitting inside it,
+        so the reply said "ช็อป.veerasiam-g", literal dot and hyphen included.
+        """
+        return " ดอท ".join(
+            " ".join(self._spell_token(bit) for bit in part.split("-") if bit)
+            for part in host.split(".") if part)
 
     @staticmethod
     def _transliterate(token: str) -> Optional[str]:
@@ -535,6 +547,18 @@ class ThaiNormalizer:
     # in `2026-09-11` the digit after `09` blocks the match.
     _NUM_RANGE = re.compile(r"(?<![\d.\-/])(\d[\d,]*)\s*-\s*(\d[\d,]*)(?![\d.\-/])")
 
+    # A Thai postcode is five digits at the end of an address. Read as a
+    # quantity it becomes "หนึ่งหมื่นหนึ่งร้อยสิบ" — a sum of money, not a place.
+    # Five digits alone is not the signal (15000 บาท is a quantity); the
+    # address word in front of it is.
+    _POSTCODE = re.compile(
+        r"((?:แขวง|ตำบล|ต\.|เขต|อำเภอ|อ\.|จังหวัด|จ\.|กรุงเทพมหานคร|กรุงเทพฯ|"
+        r"กทม\.|รหัสไปรษณีย์)[^\d]{0,60}?)(\d{5})(?![\d/.-])")
+
+    def _postcodes(self, text: str) -> str:
+        return self._POSTCODE.sub(
+            lambda m: m.group(1) + _digits_to_thai(m.group(2)), text)
+
     def _ranges(self, text: str) -> str:
         return self._NUM_RANGE.sub(r"\1 ถึง \2", text)
 
@@ -602,6 +626,7 @@ class ThaiNormalizer:
         text = self._ips(text)            # before everything numeric
         text = self._dates(text)          # before times: both eat digit groups
         text = self._ranges(text)         # after them: they own their hyphens
+        text = self._postcodes(text)      # before numbers, or it becomes a sum
         text = self._times(text)
         text = self._apply(self._abbr_re, self.abbr, text)
         text = self._percent(text)        # before numbers, or the % is orphaned

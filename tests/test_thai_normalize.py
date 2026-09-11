@@ -676,3 +676,38 @@ class TestSentenceBreaks:
 
     def test_mixed_but_symmetric_markers_close_up(self, e):
         assert "ผมนึกว่า" in e.normalize('ผม **"นึก"** ว่าครับ')
+
+
+class TestAddresses:
+    """Company details: an address, a postcode, an English gloss, a website."""
+
+    @pytest.fixture
+    def a(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"/": " ทับ "},
+            "words": {"shop": "ช็อป", "Veerasiam": "วีรสยาม"}})
+
+    def test_a_postcode_is_not_a_sum_of_money(self, a):
+        """`กรุงเทพมหานคร 10110` came out หนึ่งหมื่นหนึ่งร้อยสิบ."""
+        assert "หนึ่งศูนย์หนึ่งหนึ่งศูนย์" in a.normalize(
+            "เขตวัฒนา กรุงเทพมหานคร 10110")
+
+    def test_five_digits_without_an_address_stay_a_quantity(self, a):
+        assert "หนึ่งหมื่นห้าพัน" in a.normalize("ราคา 15000 บาท")
+
+    def test_a_gloss_with_a_comma_is_dropped(self, a):
+        """`(Veerasiam Group Co., Ltd.)` survived — the comma was not in the
+        gloss character class — and half of it was then translated, leaving
+        `Veerasiam กรุ๊ป Co., Ltd.`"""
+        assert a.normalize("บริษัท วีรสยาม (Veerasiam Group Co., Ltd.) ครับ") == \
+            "บริษัท วีรสยาม ครับ"
+
+    def test_a_host_name_speaks_its_own_separators(self, a):
+        """`shop.veerasiam-g.com` became ช็อป.veerasiam-g — the head was looked
+        up whole, came back unchanged, and the lexicon then hit `shop` inside
+        it, leaving a literal dot and hyphen."""
+        out = a.normalize("เว็บ shop.veerasiam-g.com นะ")
+        assert out == "เว็บ ช็อป ดอท วีรสยาม จี ดอทคอม นะ"
+
+    def test_a_house_number_keeps_its_slash(self, a):
+        assert "ทับ" in a.normalize("ที่อยู่ 1015/2 ถนนสุขุมวิท")
