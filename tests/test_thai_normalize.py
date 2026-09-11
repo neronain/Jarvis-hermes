@@ -472,3 +472,43 @@ class TestLinksAndAddresses:
 
     def test_transit_acronyms(self, a):
         assert "บีทีเอส" in a.normalize("ใกล้กับ BTS กรุงธนบุรี")
+
+
+class TestNetworkText:
+    """A network scan report: addresses, ports, and numbered headings."""
+
+    @pytest.fixture
+    def net(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"/": " ทับ "},
+            "words": {"IP": "ไอพี", "Web": "เว็บ"}})
+
+    def test_an_ip_address_is_read_whole(self, net):
+        """Every other rule wants a piece of it and the result keeps a literal dot."""
+        out = net.normalize("วงเครือข่าย 192.168.101.0 พบว่า")
+        assert "." not in out
+        assert "หนึ่งเก้าสองจุดหนึ่งหกแปด" in out
+
+    def test_cidr_suffix(self, net):
+        assert "ทับ ยี่สิบสี่" in net.normalize("192.168.101.0/24")
+
+    def test_octets_are_read_digit_by_digit(self, net):
+        """An address is an identifier, not four quantities."""
+        assert "หนึ่งศูนย์จุดศูนย์จุดศูนย์จุดหนึ่ง" in net.normalize("10.0.0.1")
+
+    def test_something_that_is_not_an_address_is_left_alone(self, net):
+        """Octets above 255 mean it is not an address."""
+        assert "จุดแปดแปดแปด" not in net.normalize("999.888.777.666")
+
+    def test_a_decimal_is_not_an_address(self, net):
+        assert "สามสิบหกจุดห้า" in net.normalize("อุณหภูมิ 36.5 องศา")
+
+    def test_a_numbered_heading_behind_markers_loses_its_period(self, net):
+        """`### **1. หัวข้อ**` kept its period, and a period ends a sentence."""
+        out = net.normalize("### **1. วิเคราะห์กลุ่ม** ต่อไป")
+        assert out.startswith("ข้อหนึ่ง")
+        assert "." not in out
+
+    def test_a_port_pair_is_read_consistently(self, net):
+        """80 digit-by-digit and 443 as a quantity is worse than either alone."""
+        assert "แปดศูนย์ ทับ สี่สี่สาม" in net.normalize("Port 80/443")

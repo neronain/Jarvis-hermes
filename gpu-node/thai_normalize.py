@@ -170,7 +170,11 @@ class ThaiNormalizer:
     # "1." opening an item is a marker, not a number. Left alone it becomes
     # "หนึ่ง." and the trailing period splits the sentence there, so the reply
     # stops dead after every list number.
-    _MD_ORDERED = re.compile(r"(?:(?<=^)|(?<=\s))(\d{1,2})\.(?=\s)", re.M)
+    # Markers can sit in front of the number — `### **1. หัวข้อ**` — so the
+    # marker run is part of the pattern rather than something stripped first.
+    # Without this the number keeps its period, and a period ends a sentence:
+    # the voice stopped dead after every numbered heading.
+    _MD_ORDERED = re.compile(r"(?:^|(?<=\s))([*_`#]*\s*)(\d{1,2})\.(?=\s)", re.M)
 
     # Thai does not put spaces between words; a space is a phrase break and is
     # read as a pause. Emphasis markers need room, so a writer types
@@ -207,7 +211,7 @@ class ThaiNormalizer:
         # needs to see the Thai.
         text = self._EN_GLOSS.sub(r"\1", text)
         text = self._MD_RULE.sub(" ", text)
-        text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)
+        text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(2)))}", text)
         text = self._MD_LINK.sub(r"\1", text)
         text = self._MD_CODE.sub(r"\1", text)
         text = self._MD_BULLET.sub("", text)
@@ -328,6 +332,27 @@ class ThaiNormalizer:
     def _handles(self, text: str) -> str:
         return self._HANDLE.sub(lambda m: "แอท " + self._spell_token(m.group(1)), text)
 
+    # An IP address is four numbers and three dots, and every other rule here
+    # wants a piece of it: the decimal rule claims "192.168", the number rule
+    # claims each octet separately, and what comes out is
+    # "หนึ่งร้อยเก้าสิบสองจุดหนึ่งหกแปด.หนึ่งร้อยเอ็ดจุดศูนย์" — with a literal dot
+    # left standing. Handled whole, and first.
+    #
+    # Octets are read digit by digit, the way network people say them: an
+    # address is an identifier, not four quantities.
+    _IP = re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?:/(\d{1,2}))?\b")
+
+    def _ips(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            octets = m.group(1, 2, 3, 4)
+            if any(int(o) > 255 for o in octets):
+                return m.group(0)          # not an address; leave it alone
+            spoken = "จุด".join(_digits_to_thai(o) for o in octets)
+            if m.group(5):
+                spoken += " ทับ " + num_to_thai(int(m.group(5)))
+            return spoken
+        return self._IP.sub(repl, text)
+
     # "v9", "v2.1" — a version, not a word. A rule rather than lexicon entries
     # because version numbers are unbounded. The digit requirement keeps it off
     # names that merely start with v, like vSphere.
@@ -399,11 +424,19 @@ class ThaiNormalizer:
     # Numbers after these are identifiers, not quantities: nobody says
     # "port eight thousand seven hundred and sixty-six".
     _DIGITWISE_AFTER = re.compile(
-        r"(?i)((?:พอร์ต|port|ห้อง|รหัส|เบอร์|หมายเลข|version|เวอร์ชัน)\s*)(\d+)")
+        r"(?i)((?:พอร์ต|port|ห้อง|รหัส|เบอร์|หมายเลข|version|เวอร์ชัน)\s*)"
+        # The slash may already have become "ทับ": the symbol pass runs first.
+        r"(\d+(?:\s*(?:/|ทับ)\s*\d+)*)")
 
     def _numbers(self, text: str) -> str:
+        # "Port 80/443" is two ports, and both are identifiers — reading the
+        # second as four hundred and forty-three when the first was eight-zero
+        # is worse than either choice applied consistently.
         text = self._DIGITWISE_AFTER.sub(
-            lambda m: m.group(1) + _digits_to_thai(m.group(2)), text)
+            lambda m: m.group(1) + " ทับ ".join(
+                _digits_to_thai(part.strip())
+                for part in re.split(r"/|ทับ", m.group(2))),
+            text)
         # Long runs (phone numbers, ids) are identifiers too, whatever precedes them.
         text = re.sub(r"\b\d{7,}\b", lambda m: _digits_to_thai(m.group(0)), text)
         return re.sub(r"\b\d[\d,]*(?:\.\d+)?\b",
@@ -431,6 +464,7 @@ class ThaiNormalizer:
         # number pass, and "น." must not survive to be read as a letter.
         # Times and dates run before abbreviations so "23:45 น." is one clock
         # reading rather than a clock plus a stray "นาฬิกา".
+        text = self._ips(text)            # before everything numeric
         text = self._dates(text)          # before times: both eat digit groups
         text = self._times(text)
         text = self._apply(self._abbr_re, self.abbr, text)
