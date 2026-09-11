@@ -864,3 +864,25 @@ class TestUrls:
 
     def test_a_plain_domain_is_untouched_by_this_rule(self, u):
         assert "ดอทคอม" in u.normalize("เว็บ example.com นะ")
+
+
+class TestIdentifierNumbers:
+    """A port is not a quantity. The model was writing these out itself and
+    getting it wrong — "สองร้อยยี่สิบสาม" for port 223 — because the voice
+    instructions told it to say numbers as words, which predates these rules."""
+
+    @pytest.fixture
+    def i(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_a_port_is_read_digit_by_digit(self, i):
+        assert "สองสองสาม" in i.normalize("พอร์ต 223 เปิดอยู่")
+        assert "สองร้อยยี่สิบสาม" not in i.normalize("พอร์ต 223 เปิดอยู่")
+
+    def test_an_address_is_read_digit_by_digit(self, i):
+        out = i.normalize("เครื่อง 103.212.182.45 ครับ")
+        assert "หนึ่งศูนย์สามจุดสองหนึ่งสองจุดหนึ่งแปดสองจุดสี่ห้า" in out
+
+    def test_a_quantity_is_still_a_quantity(self, i):
+        assert "สองร้อยยี่สิบสาม" in i.normalize("ทั้งหมด 223 รายการ")
