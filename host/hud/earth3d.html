@@ -54,7 +54,19 @@ gmp-map-3d{display:block;width:100%;height:100%}
       const j = await r.json();
       const loc = j.results && j.results[0] && j.results[0].geometry.location;
       if (!loc) {
-        if (/not authorized|REQUEST_DENIED/i.test(j.error_message || j.status || "")) {
+        const why = j.error_message || j.status || "";
+        // Billing is its own case, and the most confusing one: the APIs are
+        // enabled, the key is valid, and it still refuses. Geocoding and Map
+        // Tiles both require a billing account; Maps Embed does not, which is
+        // why the flat map works and this does not.
+        if (/billing/i.test(why)) {
+          return fail("โปรเจกต์ยังไม่ได้ผูกบัญชีเรียกเก็บเงิน",
+            "Geocoding API กับ Map Tiles API ต้องผูกบัญชีก่อนถึงจะเรียกได้ " +
+            "(Maps Embed API ไม่ต้อง — แผนที่ 2 มิติถึงใช้ได้อยู่)<br>" +
+            "ผูกที่ <code>console.cloud.google.com → Billing</code> " +
+            "· มีโควตาฟรีให้ต่อเดือน แต่ต้องผูกบัตรไว้ถึงจะใช้โควตานั้นได้");
+        }
+        if (/not authorized|REQUEST_DENIED/i.test(why)) {
           return fail("ยังไม่ได้เปิด Geocoding API",
             "โหมด 3 มิติต้องแปลงชื่อสถานที่เป็นพิกัดก่อน — เปิด " +
             "<code>Geocoding API</code> ใน Google Cloud Console " +
