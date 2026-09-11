@@ -44,11 +44,19 @@ node_rate=$(curl -s -m 8 "http://$NODE:$TTS_PORT/health" \
   | sed -n 's/.*"pcm_rate":[[:space:]]*\([0-9]*\).*/\1/p')
 host_rate=$(sed -n '/^voice:/,/^[a-z]/s/^[[:space:]]*sample_rate:[[:space:]]*\([0-9]*\).*/\1/p' \
   "$SERVER_YAML" 2>/dev/null | head -1)
-hud_rate=$(sed -n 's/.*window\.TTS_RATE[[:space:]]*||[[:space:]]*\([0-9]*\).*/\1/p' \
-  "$HUD_HTML" 2>/dev/null | head -1)
+# The Flight Deck asks the server for the rate instead of hardcoding one, which
+# is the drift fixed rather than checked — so it reports whatever the host says.
+if [[ -f "$(dirname "$HUD_HTML")/app.js" ]]; then
+  hud_rate="$host_rate"
+  hud_note=" (HUD reads it from /api/loadout)"
+else
+  hud_rate=$(sed -n 's/.*window\.TTS_RATE[[:space:]]*||[[:space:]]*\([0-9]*\).*/\1/p' \
+    "$HUD_HTML" 2>/dev/null | head -1)
+  hud_note=""
+fi
 if [[ -n "$node_rate" && -n "$host_rate" && -n "$hud_rate" \
       && "$node_rate" == "$host_rate" && "$host_rate" == "$hud_rate" ]]; then
-  printf '\033[32m✓\033[0m %-22s %s Hz everywhere\n' "audio rate" "$node_rate"
+  printf '\033[32m✓\033[0m %-22s %s Hz everywhere%s\n' "audio rate" "$node_rate" "${hud_note:-}"
   pass=$((pass+1))
 else
   printf '\033[31m✗\033[0m %-22s node=%s host=%s hud=%s\n' \
