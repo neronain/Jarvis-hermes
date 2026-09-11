@@ -751,35 +751,73 @@ registerProcessor("pcm16k",PCM16K);`;
     oc.fillStyle = sg; oc.fillRect(cx - base * 2.4, sy - band, base * 4.8, band * 2);
   }
 
+  /* The microphone control, drawn to the brief: a thick glowing ring around a
+     dark core, concentric arcs outside it, and a waveform running left and
+     right — which is why the canvas is wide rather than square. Every bar
+     height is the live level, so the wings are a meter, not decoration. */
   function drawMic() {
     const W = micC.width, H = micC.height, cx = W / 2, cy = H / 2;
-    const R = Math.min(W, H) * 0.30;
+    const R = Math.min(H * 0.34, W * 0.13);       // core ring radius
+    const ringW = R * 0.30;                        // ... and how thick it is
     mc.clearRect(0, 0, W, H);
-    for (let i = 0; i < 52; i++) {
-      const a = (i / 52) * Math.PI * 2;
-      const wob = Math.abs(Math.sin(i * 0.55 + t * 3.1));
-      const len = R * 0.08 + wob * shown * R * 0.46;
-      mc.beginPath();
-      mc.moveTo(cx + Math.cos(a) * (R + R * 0.11), cy + Math.sin(a) * (R + R * 0.11));
-      mc.lineTo(cx + Math.cos(a) * (R + R * 0.11 + len), cy + Math.sin(a) * (R + R * 0.11 + len));
-      mc.strokeStyle = "rgba(124,92,255," + (0.12 + wob * 0.42) + ")";
-      mc.lineWidth = Math.max(2, R * 0.02); mc.lineCap = "round"; mc.stroke();
-    }
-    const g = mc.createRadialGradient(cx - R * 0.27, cy - R * 0.3, R * 0.06, cx, cy, R);
-    g.addColorStop(0, "rgba(53,232,255,.95)");
-    g.addColorStop(0.45, "rgba(124,92,255,.9)");
-    g.addColorStop(1, "rgba(255,79,216,.85)");
-    mc.fillStyle = g;
-    mc.beginPath(); mc.arc(cx, cy, R, 0, Math.PI * 2); mc.fill();
-    mc.globalCompositeOperation = "destination-out";
-    mc.beginPath(); mc.arc(cx, cy, R * 0.83, 0, Math.PI * 2); mc.fill();
-    mc.globalCompositeOperation = "source-over";
-    ring(mc, cx, cy, R * 1.03 + shown * R * 0.12, 0, Math.PI * 2, Math.max(1.5, R * 0.012), 0.3);
 
-    mc.strokeStyle = "#eef3ff"; mc.lineWidth = R * 0.047; mc.lineCap = "round";
-    mc.beginPath(); mc.roundRect(cx - R * 0.127, cy - R * 0.35, R * 0.253, R * 0.44, R * 0.127); mc.stroke();
-    mc.beginPath(); mc.arc(cx, cy + R * 0.04, R * 0.253, 0.15 * Math.PI, 0.85 * Math.PI); mc.stroke();
-    mc.beginPath(); mc.moveTo(cx, cy + R * 0.293); mc.lineTo(cx, cy + R * 0.413); mc.stroke();
+    // ambient bloom, so the ring sits in light rather than on black
+    const bloom = mc.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 3.2);
+    bloom.addColorStop(0, "rgba(124,92,255,.30)");
+    bloom.addColorStop(.45, "rgba(53,232,255,.10)");
+    bloom.addColorStop(1, "rgba(5,6,15,0)");
+    mc.fillStyle = bloom; mc.fillRect(0, 0, W, H);
+
+    // the waveform wings — mirrored, tallest nearest the ring, fading out
+    const gap = R * 1.75, barW = Math.max(2, R * 0.055), step = barW * 2.4;
+    const room = cx - gap - barW;
+    const bars = Math.max(4, Math.floor(room / step));
+    for (let i = 0; i < bars; i++) {
+      const d = i / bars;                          // 0 at the ring, 1 at the edge
+      const fade = Math.pow(1 - d, 1.5);
+      const wob = Math.abs(Math.sin(i * 0.85 - t * 5.2)) * 0.65
+                + Math.abs(Math.sin(i * 0.31 + t * 2.7)) * 0.35;
+      const h = Math.max(barW, (R * 0.16 + wob * shown * R * 1.25) * fade);
+      const x = gap + i * step;
+      mc.fillStyle = "rgba(53,232,255," + (0.14 + fade * 0.55).toFixed(3) + ")";
+      mc.beginPath(); mc.roundRect(cx + x, cy - h / 2, barW, h, barW / 2); mc.fill();
+      mc.beginPath(); mc.roundRect(cx - x - barW, cy - h / 2, barW, h, barW / 2); mc.fill();
+    }
+
+    // thin arcs outside the ring, turning slowly
+    ring(mc, cx, cy, R * 1.42, t * 0.3, t * 0.3 + 2.4, Math.max(1, R * 0.018), .30);
+    ring(mc, cx, cy, R * 1.42, t * 0.3 + Math.PI, t * 0.3 + Math.PI + 1.6,
+         Math.max(1, R * 0.018), .18);
+    ring(mc, cx, cy, R * 1.24 + shown * R * 0.10, 0, Math.PI * 2,
+         Math.max(1, R * 0.012), .22, [R * 0.08, R * 0.16]);
+
+    // the ring itself: one sweep of the whole palette, thick enough to glow
+    const g = mc.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+    g.addColorStop(0, "#35e8ff");
+    g.addColorStop(.42, "#7c5cff");
+    g.addColorStop(1, "#ff4fd8");
+    mc.save();
+    mc.shadowColor = "rgba(124,92,255,.85)";
+    mc.shadowBlur = R * 0.55;
+    mc.strokeStyle = g; mc.lineWidth = ringW;
+    mc.beginPath(); mc.arc(cx, cy, R, 0, Math.PI * 2); mc.stroke();
+    mc.restore();
+
+    // a dark core, so the glyph reads against the glow rather than through it
+    const core = mc.createRadialGradient(cx, cy - R * 0.3, R * 0.1, cx, cy, R * 0.9);
+    core.addColorStop(0, "rgba(20,26,54,.96)");
+    core.addColorStop(1, "rgba(6,8,20,.98)");
+    mc.fillStyle = core;
+    mc.beginPath(); mc.arc(cx, cy, R - ringW * 0.5, 0, Math.PI * 2); mc.fill();
+
+    // microphone
+    const s = R / 100;
+    mc.strokeStyle = "#eef3ff"; mc.lineCap = "round"; mc.lineJoin = "round";
+    mc.lineWidth = 9 * s;
+    mc.beginPath(); mc.roundRect(cx - 15 * s, cy - 42 * s, 30 * s, 52 * s, 15 * s); mc.stroke();
+    mc.lineWidth = 8 * s;
+    mc.beginPath(); mc.arc(cx, cy - 2 * s, 30 * s, 0.16 * Math.PI, 0.84 * Math.PI); mc.stroke();
+    mc.beginPath(); mc.moveTo(cx, cy + 28 * s); mc.lineTo(cx, cy + 44 * s); mc.stroke();
   }
 
   function frame() {

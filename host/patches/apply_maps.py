@@ -37,6 +37,12 @@ MARKER = "# --- jarvis-hermes: maps ---"
 BLOCK = '''
 ''' + MARKER + '''
 MAPS_KEY_ENV = (CFG.get("maps") or {}).get("api_key_env", "JARVIS_MAPS_API_KEY")
+# Photorealistic 3D needs Geocoding API and Map Tiles API, and both need a
+# billing account on the key's project — the Maps Embed API needs neither,
+# which is why the flat map works on a key that the other two refuse. Off by
+# default: "earth" then falls through to satellite at a close zoom, which is
+# what people are asking to see. Set JARVIS_MAPS_3D=1 once billing is linked.
+MAPS_3D = os.environ.get("JARVIS_MAPS_3D", "0") == "1"
 
 
 def _maps_key() -> str:
@@ -57,7 +63,7 @@ def _map_url(body: dict) -> tuple[str, str]:
         raise ValueError(
             f"no Google Maps API key: set {MAPS_KEY_ENV} in ~/.hermes/.env. "
             "Create one at console.cloud.google.com with Maps Embed API "
-            "(and Map Tiles API for 3D) enabled, restricted to this host."
+            "enabled, restricted to this host. Embed needs no billing account."
         )
 
     mode = (body.get("mode") or "satellite").lower()
@@ -65,7 +71,7 @@ def _map_url(body: dict) -> tuple[str, str]:
     lat, lng = body.get("lat"), body.get("lng")
     title = body.get("title") or q or "แผนที่"
 
-    if mode == "earth":
+    if mode == "earth" and MAPS_3D:
         # Our own page, which loads the maps3d library. It asks /api/mapkey for
         # the key itself, so the key is not in the URL we broadcast.
         params = {"label": title}
@@ -90,21 +96,31 @@ def _map_url(body: dict) -> tuple[str, str]:
         return url, title
 
     if mode == "streetview":
+        # Street View takes coordinates or a pano id, never a place name:
+        # "location=วัดอรุณ" comes back as "Invalid 'location' parameter". Turning
+        # a name into coordinates is the Geocoding API, which needs a billing
+        # account — so with an Embed-only key a name falls through to satellite
+        # rather than showing an error the caller cannot act on.
         if lat is not None and lng is not None:
-            loc = f"&location={lat},{lng}"
-        elif q:
-            loc = f"&location={quote_plus(q)}"
-        else:
-            raise ValueError("streetview needs lat/lng or q")
-        return (f"https://www.google.com/maps/embed/v1/streetview?key={key}{loc}"
-                "&language=th&region=TH"), title
+            return (f"https://www.google.com/maps/embed/v1/streetview?key={key}"
+                    f"&location={lat},{lng}&language=th&region=TH"), title
+        if body.get("pano"):
+            return (f"https://www.google.com/maps/embed/v1/streetview?key={key}"
+                    f"&pano={quote_plus(str(body['pano']))}&language=th&region=TH"), title
+        if not q:
+            raise ValueError("streetview needs lat/lng, a pano id, or q")
+        mode = "earth"      # satellite, close in — and the label says so
+        title = f"{title} · ดาวเทียม (สตรีทวิวต้องใช้พิกัด)"
 
-    # place / satellite / map — the ordinary case.
+    # place / satellite / map — the ordinary case, and where "earth" lands when
+    # 3D is off. Satellite imagery at a close zoom is what people are asking
+    # for when they say Earth; the tilted globe is the part that needs billing.
     if not q and (lat is None or lng is None):
         raise ValueError("a map needs q, or lat and lng")
     where = q if q else f"{lat},{lng}"
-    maptype = "satellite" if mode in ("satellite", "earth2d") else "roadmap"
-    zoom = int(body.get("zoom") or (16 if maptype == "satellite" else 14))
+    maptype = "roadmap" if mode in ("roadmap", "map") else "satellite"
+    zoom = int(body.get("zoom") or (18 if mode == "earth" else
+                                    16 if maptype == "satellite" else 14))
     return (f"https://www.google.com/maps/embed/v1/place?key={key}"
             f"&q={quote_plus(where)}&maptype={maptype}&zoom={zoom}"
             "&language=th&region=TH"), title
