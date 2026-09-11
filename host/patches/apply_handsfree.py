@@ -43,7 +43,10 @@ ACK_ENDPOINT = '''
 #
 # Upstream has ack_after_seconds and ack_texts in its example config but never
 # reads either (grep says zero), so this is built rather than configured.
-ACK_TEXTS = ["ครับ", "ได้ครับ", "รับทราบครับ", "อืม"]
+# "อืม" is a hesitation, not an acknowledgement. Coming back from a machine it
+# reads as the machine being unsure rather than as it having heard you, which
+# is the opposite of what this clip is for.
+ACK_TEXTS = ["ครับ", "ได้ครับ", "รับทราบครับ"]
 _ACK_CACHE: dict = {}
 
 
@@ -58,7 +61,11 @@ async def ack(i: int = -1):
     import random
     from fastapi.responses import Response as _Resp
 
-    idx = i if 0 <= i < len(ACK_TEXTS) else random.randrange(len(ACK_TEXTS))
+    # Out of range is 404 rather than a random substitute, so the HUD can
+    # simply fetch until it stops and never needs to know how many there are.
+    if i >= len(ACK_TEXTS):
+        return _Resp(status_code=404, content=b"")
+    idx = i if i >= 0 else random.randrange(len(ACK_TEXTS))
     if idx not in _ACK_CACHE:
         pcm = b""
         voice = CFG.get("voice") or {}

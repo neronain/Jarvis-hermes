@@ -159,9 +159,12 @@
   async function loadAcks() {
     S.ackBuffers = [];
     const ctx = ensureCtx();
-    for (let i = 0; i < 4; i++) {
+    // Fetch until the server runs out, rather than assuming a count the
+    // server is free to change.
+    for (let i = 0; i < 8; i++) {
       try {
         const r = await fetch("/api/ack?i=" + i);
+        if (r.status === 404) break;
         if (!r.ok) continue;
         const raw = await r.arrayBuffer();
         if (raw.byteLength < 640) continue;       // under 20 ms is not a word
