@@ -24,7 +24,7 @@ from pathlib import Path
 # Order matters only where anchors overlap; today they don't. Kept explicit so
 # a future conflict is resolved here rather than by import order.
 PATCHES = ["apply_f5_tts.py", "apply_hud_fixes.py", "apply_handsfree.py",
-           "apply_voicemode.py"]
+           "apply_voicemode.py", "apply_turn_context.py"]
 
 # Every file any patcher touches, so the base is clean before the first one runs.
 TOUCHED = ["server/server.py", "server/hud/index.html"]

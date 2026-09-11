@@ -39,7 +39,8 @@ HUD_MARKER = "window.TTS_RATE"
 BLOCK = '''
 ''' + MARKER + '''
 # See the module docstring of host/patches/apply_voicemode.py for the numbers.
-_VM: dict = {"at": 0.0, "session": None, "running": False, "last": "", "cold": True}
+_VM: dict = {"at": 0.0, "session": None, "turns": 0, "running": False,
+             "last": "", "cold": True}
 VM_TTL = float(os.environ.get("JARVIS_HERMES_WARM_TTL", "600"))
 VM_HEARTBEAT = float(os.environ.get("JARVIS_HERMES_WARM_HEARTBEAT", "60"))
 # Short, and explicit about tools: a warm-up that triggers a web search costs
@@ -49,14 +50,36 @@ VM_PROMPT = os.environ.get(
     "ตอบด้วยคำว่า พร้อม เพียงคำเดียว ห้ามเรียกใช้เครื่องมือใด ๆ")
 
 
+# Hermes refuses a second session with a title it already has
+# ("Title already in use by session api_..."), so reusing one fixed title
+# worked exactly once and then 400'd on every restart — the warm-up was dead
+# from the first redeploy and said so only in the log. Each warm session gets
+# its own title, and is retired once its own history starts costing more than
+# the prefill it was opened to save.
+VM_SESSION_TURNS = int(os.environ.get("JARVIS_HERMES_WARM_SESSION_TURNS", "20"))
+
+
+def _vm_new_session(pipeline) -> str:
+    r = requests.post(
+        f"{pipeline.hermes.base}/api/sessions",
+        headers=pipeline.hermes.headers(),
+        json={"title": f"jarvis-warmup-{int(time.time())}"},
+        timeout=15,
+    )
+    r.raise_for_status()
+    data = r.json()
+    return (data.get("session") or data).get("id")
+
+
 def _vm_warm_sync() -> str:
     pipeline = get_pipeline()
     h = (pipeline.cfg.get("hermes") or {})
     if (h.get("provider") or "hermes") != "hermes":
         return "skipped (brain is not hermes)"
-    if _VM["session"] is None:
-        _VM["session"] = pipeline.hermes.get_session_id(
-            h.get("warm_conversation", "jarvis-warmup"), force_new=True)
+    if _VM["session"] is None or _VM["turns"] >= VM_SESSION_TURNS:
+        _VM["session"] = _vm_new_session(pipeline)
+        _VM["turns"] = 0
+    _VM["turns"] += 1
     t0 = time.perf_counter()
     run_id = ""
     for kind, value in pipeline.hermes.chat_stream_events(_VM["session"], VM_PROMPT, 180.0):
@@ -91,6 +114,7 @@ async def _vm_warm(reason: str, force: bool = False) -> None:
     except Exception as exc:
         # A failed warm-up must never cost anyone a turn. The next real
         # utterance simply pays the prefill it would have paid anyway.
+        _VM["session"] = None      # mint a fresh one next time rather than retry a dead id
         _VM["last"] = f"failed: {exc}"
         print(f"Hermes warm-up failed ({reason}): {exc}", flush=True)
     finally:
@@ -135,6 +159,7 @@ async def _vm_status() -> JSONResponse:
         "ttl_seconds": VM_TTL,
         "heartbeat_seconds": VM_HEARTBEAT,
         "last": _VM["last"],
+        "session_turns": _VM["turns"],
     })
 
 
