@@ -82,6 +82,8 @@ def _map_url(body: dict) -> tuple[str, str]:
         dest = (body.get("destination") or q).strip()
         if not origin or not dest:
             raise ValueError("directions needs origin and destination")
+        if not body.get("title"):
+            title = f"{origin} → {dest}"
         url = ("https://www.google.com/maps/embed/v1/directions"
                f"?key={key}&origin={quote_plus(origin)}&destination={quote_plus(dest)}"
                f"&mode={quote_plus(body.get('travel') or 'driving')}&language=th&region=TH")

@@ -342,12 +342,13 @@ registerProcessor("pcm16k",PCM16K);`;
       body.innerHTML = '<div class="msg-empty"><div><b>ไม่มีอะไรจะแสดง</b>' +
         'คำสั่งมาถึงแล้วแต่ไม่มี src</div></div>';
     } else {
-      // allow-scripts is what the Maps Embed API needs; the frame gets no
-      // access to this page, which is the point of listing them one at a time.
-      body.innerHTML = '<iframe src="' + esc(src) + '" loading="lazy" ' +
+      // No sandbox attribute: allow-scripts together with allow-same-origin
+      // sandboxes nothing (the browser warns about exactly this), and the src
+      // is never user input — the server builds it from a template, so the
+      // frame is either Google's own embed or a page we serve.
+      body.innerHTML = '<iframe src="' + esc(src) + '" ' +
         'referrerpolicy="no-referrer-when-downgrade" ' +
-        'sandbox="allow-scripts allow-same-origin allow-popups" ' +
-        'allow="fullscreen" title="' + esc(e.title || "panel") + '"></iframe>';
+        'allow="fullscreen" allowfullscreen title="' + esc(e.title || "panel") + '"></iframe>';
     }
     $("chatCard").hidden = true;
     $("stagePanel").hidden = false;

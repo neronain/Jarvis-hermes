@@ -53,7 +53,15 @@ gmp-map-3d{display:block;width:100%;height:100%}
         encodeURIComponent(q) + "&language=th&key=" + key);
       const j = await r.json();
       const loc = j.results && j.results[0] && j.results[0].geometry.location;
-      if (!loc) throw new Error(j.error_message || j.status || "ไม่พบสถานที่");
+      if (!loc) {
+        if (/not authorized|REQUEST_DENIED/i.test(j.error_message || j.status || "")) {
+          return fail("ยังไม่ได้เปิด Geocoding API",
+            "โหมด 3 มิติต้องแปลงชื่อสถานที่เป็นพิกัดก่อน — เปิด " +
+            "<code>Geocoding API</code> ใน Google Cloud Console " +
+            "หรือส่ง <code>lat</code> กับ <code>lng</code> มาตรง ๆ ก็ได้");
+        }
+        throw new Error(j.error_message || j.status || "ไม่พบสถานที่");
+      }
       lat = loc.lat; lng = loc.lng;
     } catch (e) {
       return fail("หาพิกัดไม่เจอ", String(e.message || e));
@@ -95,6 +103,17 @@ gmp-map-3d{display:block;width:100%;height:100%}
   host.className = "";
   host.innerHTML = "";
   host.appendChild(map);
+
+  // The element initialises even when there are no tiles to draw, so a missing
+  // Map Tiles API looks exactly like a slow connection: a black rectangle. Say
+  // so after long enough that a slow connection would have finished.
+  const hint = document.createElement("div");
+  hint.style.cssText = "position:fixed;left:0;right:0;bottom:0;padding:10px 14px;" +
+    "background:rgba(5,6,15,.92);border-top:1px solid rgba(255,200,92,.4);" +
+    "font-size:12px;line-height:1.7;color:#ffc85c";
+  hint.innerHTML = "ยังไม่เห็นภาพ 3 มิติ? ตรวจว่าเปิด <code>Map Tiles API</code> " +
+    "และผูกบัญชีเรียกเก็บเงินกับโปรเจกต์แล้ว";
+  setTimeout(() => { if (document.body.contains(map)) document.body.appendChild(hint); }, 9000);
 
   // A slow orbit, so a still photograph reads as a place rather than a texture.
   if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
