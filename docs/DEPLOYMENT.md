@@ -147,6 +147,27 @@ curl -s localhost:8768/health | python3 -m json.tool
 curl -s localhost:8769/health | python3 -m json.tool
 ```
 
+### อัปเดตรอบถัดไป
+
+บน `rtx4000` ที่ใช้งานจริงตอนนี้ **repo ถูก clone ไว้ทั้งก้อนที่ `~/Jarvis-hermes`**
+(ไม่ใช่ `~/jarvis-gpu-node` ที่ `deploy-gpu-node.sh` ตั้งไว้เป็นค่าเริ่มต้น) ·
+รอบอัปเดตจึงเป็น `git pull` ไม่ใช่ rsync:
+
+```bash
+ssh rtx4000 'cd ~/Jarvis-hermes && git pull --ff-only && systemctl --user restart jarvis-tts jarvis-stt'
+```
+
+ตรวจว่าโค้ดใหม่ทำงานจริงโดย**ไม่ต้องสังเคราะห์เสียง** — ยิง `/normalize` ดูข้อความ
+ที่โมเดลจะได้รับ (auth ใช้ header `X-Jarvis-Token` ไม่ใช่ `Authorization`):
+
+```bash
+curl -s -X POST http://100.113.214.111:8769/normalize -H 'Content-Type: application/json' -H "X-Jarvis-Token: $JARVIS_TTS_TOKEN" -d '{"text":"เลข 041 ช่วง 28-33 องศา"}'
+```
+
+> ถ้าจะใช้ `deploy-gpu-node.sh` (rsync ทับ) ให้ระบุปลายทางให้ตรง มิฉะนั้นจะได้
+> โค้ดสองชุดบนเครื่องเดียว และ systemd ยังชี้ไปที่ชุดเดิม:
+> `JARVIS_GPU_DIR=~/Jarvis-hermes/gpu-node ./scripts/deploy-gpu-node.sh rtx4000`
+
 ---
 
 ## 2. Voice host
