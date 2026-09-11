@@ -13,6 +13,9 @@ f5-tts-th==1.0.9
 soundfile>=0.12.1
 
 # --- thai text normalisation ---
+# Pronunciations for the phonetic English fallback. Optional at runtime: the
+# normaliser degrades to leaving English in place when it is missing.
+cmudict>=1.0
 # (pyyaml below covers the lexicon)
 
 # --- serving ---
