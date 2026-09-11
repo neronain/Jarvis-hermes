@@ -446,6 +446,27 @@ class ThaiNormalizer:
             return self._spell_domain(full)
         return self._BARE_DOMAIN.sub(repl, text)
 
+    # A URL read aloud is fifteen seconds nobody can write down. This one —
+    # https://www.google.com/maps/search/One+To+Two+Cafe+Bangna — came out as
+    # "เอชทีทีพีเอส ทับ ทับ ดับเบิลยูดับเบิลยูดับเบิลยู ดอท กูเกิล ดอทคอม หรือ
+    # แมปส์ หรือ search หรือ One บวก ทีโอ บวก Two..." and by then the listener
+    # has stopped listening.
+    #
+    # Only the host is spoken, and the path is dropped: "it is a Google link"
+    # is the part a person can actually use, and the full address is on the
+    # screen in front of them — the HUD shows the written reply, not this.
+    _URL = re.compile(r"\bhttps?://(?:www\.)?([^\s/?#]+)[^\s]*", re.I)
+
+    def _urls(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            host = m.group(1)
+            # A bare address stays as it is so the IP rule can read it as an
+            # address; spelling it as a domain gives four spelled-out numbers.
+            if not re.search(r"[A-Za-z]", host):
+                return " " + host.split(":")[0] + " "
+            return " " + self._spell_domain(host.split(":")[0]) + " "
+        return self._URL.sub(repl, text)
+
     def _emails(self, text: str) -> str:
         return self._EMAIL.sub(
             lambda m: f"{self._spell_token(m.group(1))} แอท {self._spell_domain(m.group(2))}",
@@ -648,6 +669,14 @@ class ThaiNormalizer:
     def normalize(self, text: str) -> str:
         if not text:
             return text
+        # A markdown link first: its text is what the writer meant to be read,
+        # and the address inside it is nobody's business out loud. Before the
+        # URL rule, or the address would be spoken as well as the label.
+        text = self._MD_LINK.sub(r"\1", text)
+        # Then URLs, before everything else including markdown: the "A/B is a
+        # choice" rule turns "com/maps" into "com หรือ maps", and by the time a
+        # URL rule ran there was no URL left to match.
+        text = self._urls(text)
         text = self._strip_markdown(text)
         text = text.translate(_THAI_DIGIT_MAP)
         # Emails before the @ symbol rule, or the address is torn apart.
@@ -685,9 +714,16 @@ class ThaiNormalizer:
         # readers, which is redundant once both halves are spoken Thai. Collapse
         # an adjacent exact repeat of up to four words; longer spans are more
         # likely to be deliberate.
-        for n in (4, 3, 2, 1):
+        for n in (4, 3, 2):
             pattern = r"(?<![^\s])((?:\S+)(?:\s+\S+){%d})(\s+\1)+(?![^\s])" % (n - 1)
             text = re.sub(pattern, r"\1", text)
+        # A single repeated word is only collapsed when it is long enough to be
+        # a word rather than a syllable. "วัน ทู ทู (One To Two)" is a shop
+        # called One To Two, and eating the second ทู renamed it — the same
+        # silent kind of damage as an abbreviation firing mid-word. A repeated
+        # short syllable belongs to a name or an intensifier far more often
+        # than it is a gloss said twice.
+        text = re.sub(r"(?<![^\s])(\S{4,})(\s+\1)+(?![^\s])", r"\1", text)
         return text
 
 

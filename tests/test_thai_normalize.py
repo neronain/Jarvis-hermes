@@ -811,3 +811,56 @@ class TestLoneLatin:
     def test_it_does_not_reach_into_an_address(self, l):
         out = l.normalize("อีเมล a@b.com")
         assert "@" not in out and "b.com" not in out
+
+
+class TestRepeatedShortWords:
+    """Collapsing an adjacent repeat is right for a gloss said twice and wrong
+    for a name that contains a repeat."""
+
+    @pytest.fixture
+    def r(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_a_name_keeps_its_repeat(self, r):
+        """A shop called One To Two came back as วัน ทู — renamed, silently."""
+        assert r.normalize("ร้าน วัน ทู ทู (One To Two) ครับ") == "ร้าน วัน ทู ทู ครับ"
+
+    def test_a_repeated_syllable_survives(self, r):
+        assert r.normalize("ชื่อ ปู ปู นะ") == "ชื่อ ปู ปู นะ"
+
+    def test_a_long_repeated_word_is_still_collapsed(self, r):
+        assert r.normalize("คอมมิวนิเคชั่น คอมมิวนิเคชั่น จำกัด") == "คอมมิวนิเคชั่น จำกัด"
+
+    def test_a_repeated_phrase_is_still_collapsed(self, r):
+        assert r.normalize("ซีวายเอ็น กรุ๊ป ซีวายเอ็น กรุ๊ป") == "ซีวายเอ็น กรุ๊ป"
+
+
+class TestUrls:
+    """A URL read aloud is fifteen seconds nobody can write down."""
+
+    @pytest.fixture
+    def u(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {"/": " ทับ ", "+": " บวก "},
+            "words": {"google": "กูเกิล", "github": "กิตฮับ"}})
+
+    def test_only_the_host_is_spoken(self, u):
+        """https://www.google.com/maps/search/One+To+Two+Cafe+Bangna came out as
+        "เอชทีทีพีเอส ทับ ทับ ดับเบิลยูดับเบิลยูดับเบิลยู ดอท กูเกิล ดอทคอม
+        หรือ แมปส์ หรือ search หรือ One บวก..." — by then nobody is listening."""
+        out = u.normalize("ลองดูที่นี่ https://www.google.com/maps/search/One+To+Two+Cafe ครับ")
+        assert out == "ลองดูที่นี่ กูเกิล ดอทคอม ครับ"
+
+    def test_the_scheme_is_never_spelled(self, u):
+        assert "เอชทีทีพี" not in u.normalize("ไปที่ http://github.com/x/y นะ")
+
+    def test_a_markdown_link_speaks_its_text_only(self, u):
+        assert u.normalize("[เว็บไซต์](https://github.com/a/b) ครับ") == "เว็บไซต์ ครับ"
+
+    def test_a_bare_address_is_still_read_as_an_address(self, u):
+        out = u.normalize("ไป http://192.168.1.1:8080/admin ครับ")
+        assert "จุด" in out and "แอดมิน" not in out
+
+    def test_a_plain_domain_is_untouched_by_this_rule(self, u):
+        assert "ดอทคอม" in u.normalize("เว็บ example.com นะ")
