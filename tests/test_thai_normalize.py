@@ -743,3 +743,40 @@ class TestSilenceGate:
     ])
     def test_something_was_said(self, text):
         assert self._is_filler()(text) is False
+
+
+class TestFileNames:
+    """A file name is not a domain and not a sentence."""
+
+    @pytest.fixture
+    def f(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {"shop": "ช็อป"}})
+
+    def test_an_extension_is_spoken(self, f):
+        """`SOUL.md` came out เอสโอยูแอล.md — a literal dot and two letters
+        with no reading."""
+        out = f.normalize("กฎอยู่ใน SOUL.md ครับ")
+        assert "ดอทเอ็มดี" in out
+        assert ".md" not in out
+
+    def test_a_domain_is_not_a_file(self, f):
+        assert "ดอทคอม" in f.normalize("เว็บ shop.example.com นะ")
+
+    def test_an_unknown_extension_is_left_alone(self, f):
+        assert "ดอท" not in f.normalize("ไฟล์ report.qqq ครับ")
+
+
+class TestGlossPunctuation:
+    """`(And ready to go!)` survived — `!` was in neither character class."""
+
+    @pytest.fixture
+    def g(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_an_exclamation_does_not_save_the_gloss(self, g):
+        assert g.normalize("พร้อมมากครับ! (And ready to go!) นะ") == "พร้อมมากครับ! นะ"
+
+    def test_a_question_mark_too(self, g):
+        assert "Really" not in g.normalize("จริงหรือ? (Really?) ครับ")

@@ -78,6 +78,32 @@ symbols:
 # คำอังกฤษ / ศัพท์เทคนิค — เขียนเป็นคำอ่านไทยที่คนไทยพูดกันจริง
 # ---------------------------------------------------------------------------
 words:
+  Obsidian: ออบซิเดียน
+  Vault: วอลต์
+  Noise: นอยส์
+  Signal: สัญญาณ
+  Protocol: โปรโตคอล
+  Meeting: มีตติ้ง
+  Notes: โน้ต
+  Note: โน้ต
+  Action: แอ็กชัน
+  Items: ไอเท็ม
+  Item: ไอเท็ม
+  Research: รีเสิร์ช
+  Captures: แคปเจอร์
+  Capture: แคปเจอร์
+  People: พีเพิล
+  Decisions: ดิซิชัน
+  Decision: ดิซิชัน
+  Routine: รูทีน
+  Daily: เดลี่
+  Sync: ซิงก์
+  Skill: สกิล
+  Skills: สกิล
+  Quality: คุณภาพ
+  Quantity: ปริมาณ
+  Heartbeat: ฮาร์ตบีต
+  ready: เรดี้
   Veerasiam: วีรสยาม
   # --- โครงสร้างพื้นฐาน ---
   "server": "เซิร์ฟเวอร์"

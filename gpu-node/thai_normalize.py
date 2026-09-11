@@ -251,12 +251,14 @@ class ThaiNormalizer:
     # same thing twice in two languages and doubles the length of every heading.
     # Dropped entirely; the Thai beside it already carried the meaning.
     # Parentheses holding Thai, or numbers, are left alone.
+    # The Thai it captures may carry its own "!" or "?" — that belongs to the
+    # sentence, not to the bracket, and eating it flattens the delivery.
     # Captures the Thai rather than looking behind it: a closing quote can sit
     # between the word and the bracket — `"เพ้อเจ้อ" (Verbose)` — and Python's
     # lookbehind is fixed-width, so it cannot step over one.
     _EN_GLOSS = re.compile(
-        r"([\u0E00-\u0E7F])[\s\"'*`\u201c\u201d\u2018\u2019]*"
-        r"\(\s*[A-Za-z][A-Za-z0-9 &/\-.,'\u2019]*\)")
+        r"([\u0E00-\u0E7F][!?]?)[\s!?\"'*`\u201c\u201d\u2018\u2019]*"
+        r"\(\s*[A-Za-z][A-Za-z0-9 &/\-.,!?'\u2019]*\)")
 
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
@@ -320,6 +322,29 @@ class ThaiNormalizer:
         "io": "ดอทไอโอ", "ai": "ดอทเอไอ", "dev": "ดอทเดฟ", "th": "ดอททีเอช",
     }
     _EMAIL = re.compile(r"\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z.]{2,})\b")
+
+    # A file name is not a domain and not a sentence. `SOUL.md` came out as
+    # "เอสโอยูแอล.md" — the stem spelled, then a literal dot and two letters the
+    # voice has no reading for. Extensions with a spoken form of their own get
+    # it; the rest are letters, which is how people say them.
+    _FILE_EXT = {
+        "json": "เจสัน", "yaml": "ยามเมิล", "yml": "ยามเมิล",
+        "py": "พีวาย", "md": "เอ็มดี", "sh": "เอสเอช", "txt": "ทีเอ็กซ์ที",
+        "csv": "ซีเอสวี", "pdf": "พีดีเอฟ", "html": "เอชทีเอ็มแอล",
+        "css": "ซีเอสเอส", "js": "เจเอส", "ts": "ทีเอส", "sql": "เอสคิวแอล",
+        "log": "ล็อก", "env": "เอ็นวี", "xml": "เอ็กซ์เอ็มแอล", "toml": "ทอมเมิล",
+        "ini": "ไอเอ็นไอ", "conf": "คอนฟ์", "png": "พีเอ็นจี", "jpg": "เจเพ็ก",
+        "wav": "เวฟ", "mp3": "เอ็มพีสาม", "mp4": "เอ็มพีสี่", "zip": "ซิป",
+        "go": "โก", "rs": "อาร์เอส",
+    }
+    _FILENAME = re.compile(
+        r"\b([A-Za-z][A-Za-z0-9_.-]*)\.(" + "|".join(sorted(_FILE_EXT, key=len, reverse=True)) + r")\b")
+
+    def _filenames(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            stem, ext = m.group(1), m.group(2).lower()
+            return f"{self._spell_host(stem)} ดอท{self._FILE_EXT[ext]}"
+        return self._FILENAME.sub(repl, text)
 
     def _spell_domain(self, domain: str) -> str:
         """cyn.co.th -> ซีวายเอ็น ดอทซีโอดอททีเอช."""
@@ -617,6 +642,7 @@ class ThaiNormalizer:
         text = self._emails(text)
         text = self._handles(text)    # after emails: user@host must not match first
         text = self._domains(text)    # after both: neither is a bare domain
+        text = self._filenames(text)  # after domains: shop.veerasiam-g.com is not a file
         # Phones before general numbers, or each block becomes a quantity.
         text = self._phones(text)
         # Abbreviations before numbers: "12 กม." must not lose its unit to the

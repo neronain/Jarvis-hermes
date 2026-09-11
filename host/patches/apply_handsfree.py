@@ -90,6 +90,9 @@ const VAD = Object.assign({
   bargeMargin: 6.0,   // ... over the assistant's echo, to count as interrupting
   echoGuardMs: 700,   // keep the strict bar this long after the last audio chunk
   cooldownMs: 1200,   // after sending a turn, refuse to open another at all
+  ackDelayMs: 1800,   // wait this long for the real reply before saying "ครับ"
+                      // (measured: end of speech to first audio is ~1.9 s, so
+                      // an ordinary turn now answers itself and this never fires)
   prerollMs:  1200,   // audio kept from *before* the detector fired (see below)
                       // 640 ms was not enough: a quiet opening syllable can
                       // take most of a second to cross the threshold, and the
@@ -109,6 +112,7 @@ let handsFree=false, vadSpeech=0, vadSilence=0, noiseFloor=null, turnMs=0, turnP
 // speech at all — the assistant then acknowledged an empty room, out loud.
 let turnSpeechMs=0;
 let agentBusy=false, lastAudioAt=0, ackBuffers=[], cooldownUntil=0;
+let ackTimer=null;
 
 // A detector can only fire after enough speech has arrived to be sure it is
 // speech — by then the first syllables are already past. Without this the turn
@@ -142,6 +146,23 @@ async function loadAcks(){
   }
 }
 
+// The acknowledgment used to play the instant a turn was sent. That was right
+// when a turn took six to fourteen seconds. It is wrong now that the first
+// audio arrives in under two — and it was always wrong in one specific way: it
+// fired before anybody knew whether there WAS a turn. Room noise that got past
+// the detector was acknowledged out loud and then thrown away by the server
+// for having no transcript, so the agent said "ครับ" to an empty room.
+//
+// Now it waits, and anything proving the turn is real and moving cancels it.
+function armAck(){
+  cancelAck();
+  ackTimer = setTimeout(()=>{ ackTimer=null; playAck(); }, VAD.ackDelayMs);
+}
+
+function cancelAck(){
+  if(ackTimer){ clearTimeout(ackTimer); ackTimer=null; }
+}
+
 function playAck(){
   if(!ackBuffers.length || !audioCtx) return;
   const ab=ackBuffers[Math.floor(Math.random()*ackBuffers.length)];
@@ -173,11 +194,20 @@ function assistantActive(){ return agentBusy || echoRisk(); }
 const _setState = setState;
 setState = function(st, label, hint){
   if(st==="thinking" || st==="tool" || st==="speaking") agentBusy=true;
-  else if(st==="standby") agentBusy=false;
+  else if(st==="standby"){
+    agentBusy=false;
+    // Back to standby without a word spoken means the turn was dropped — the
+    // transcript was empty or the sidecar refused it. Nothing to acknowledge.
+    cancelAck();
+  }
   return _setState(st, label, hint);
 };
 const _playChunk = playChunk;
-playChunk = function(buf){ lastAudioAt = performance.now(); return _playChunk(buf); };
+playChunk = function(buf){
+  cancelAck();            // the real reply beat it; saying "ครับ" over it is noise
+  lastAudioAt = performance.now();
+  return _playChunk(buf);
+};
 
 function hfStatus(text, cls){
   const el=$("hfState"); if(el){ el.textContent=text; el.className=cls||""; }
@@ -206,7 +236,7 @@ function beginTurn(interrupting){
 function endTurn(why){
   capturing=false;
   ws.send(JSON.stringify({type:"stop"}));
-  playAck();   // answer the silence immediately, before the agent has started
+  armAck();    // ... only if the answer does not arrive on its own first
   cooldownUntil = performance.now() + VAD.cooldownMs;
   vadSpeech=0; vadSilence=0; turnMs=0; turnSpeechMs=0; turnPeak=0;
   $("levelBar").style.width="0%";
