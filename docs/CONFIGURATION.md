@@ -140,6 +140,34 @@ TTS อ่าน คำสั่งที่ควรมี:
 - อ่านตัวเลข/วันที่/เวลาเป็นคำพูด — แก้ที่ต้นทางดีกว่าไปแก้ที่ TTS
 - ห้ามพูดความลับออกเสียง
 
+### เขตเวลาของ Hermes
+
+`~/.hermes/config.yaml` (บนเครื่องที่รัน Hermes ไม่ใช่ GPU node):
+
+```yaml
+timezone: Asia/Bangkok
+```
+
+ถ้าไม่ตั้ง `hermes_time.get_timezone()` คืน `None` แล้วตกไปใช้เวลาของระบบ —
+ซึ่งบังเอิญถูกบน OrbStack แต่ทำให้ system prompt เขียนแค่ `(+07, UTC+07:00)`
+**ไม่มีชื่อโซน** และจะผิดทันทีบนเครื่องที่ตั้งเป็น UTC (เช่น container หรือ
+cloud VM ส่วนใหญ่) · ลำดับที่ Hermes อ่าน: `HERMES_TIMEZONE` → `timezone` ใน
+config → เวลาระบบ
+
+ตรวจว่าได้ผล:
+
+```bash
+cd ~/.hermes/hermes-agent && python3 -c "import hermes_time; print(hermes_time.get_timezone(), hermes_time.now())"
+```
+
+> **กับดัก:** บรรทัดในบริบทคือ `Conversation started:` — **วันที่เปิด session
+> ไม่ใช่วันนี้** และเป็นแบบวันเดียว (ตั้งใจ เพื่อให้ prompt cache ไม่พังทุกนาที) ·
+> session ที่เปิดค้างข้ามคืนจะทำให้โมเดลรายงานวันของเมื่อวาน — เคยตอบ
+> "วันนี้ 10 กันยายน 2569" ตอนที่เป็นวันที่ 11 แล้ว · `SOUL.md` จึงมีบรรทัดบอกว่า
+> ถ้าวันที่สำคัญกับคำตอบให้อ่านนาฬิกาจริงด้วย terminal tool และคำนวณ พ.ศ.
+> จากวันที่จริง (ค.ศ. + 543) · แก้ config แล้วต้อง
+> `systemctl --user restart hermes-dashboard`
+
 ---
 
 ## ค่าที่ต้องตรงกันทั้งสองฝั่ง

@@ -221,10 +221,30 @@ class ThaiNormalizer:
     # `เกินเหตุเอาล่ะครับ`, because a marker opening a new sentence looks exactly
     # like one wrapping a word. Length is the signal that separates them — a
     # word or two is emphasis inside a phrase, a longer span is its own clause.
+    # The markers on the two sides must also MATCH. A closing quote paired
+    # with an opening `**` is not a wrap, it is the end of one sentence meeting
+    # the start of the next: `...นะครับ 😉 **ถ้าจะให้ผม "จัดเต็ม"` ran together
+    # as `นะครับถ้าจะให้ผม`, losing the sentence break entirely.
     _EMPH_SHORT = re.compile(
-        r"(?<=[\u0E00-\u0E7F])\s*[*_`\"\u201c\u201d]+\s*"
+        r"(?<=[\u0E00-\u0E7F])\s*([*_`\"\u201c\u201d]+)\s*"
         r"([\u0E00-\u0E7F]{1,12})"
-        r"\s*[*_`\"\u201c\u201d]+\s*(?=[\u0E00-\u0E7F])")
+        r"\s*([*_`\"\u201c\u201d]+)\s*(?=[\u0E00-\u0E7F])")
+
+    @staticmethod
+    def _marker_kind(run: str) -> str:
+        """Which markers a run is made of, ignoring order and repetition.
+
+        `**` and `**` wrap a word; `**"` and `"**` wrap it too. `**` and `"`
+        do not. Curly quotes count as straight ones.
+        """
+        return "".join(sorted(set(re.sub(r"[\u201c\u201d]", '"', run))))
+
+    def _emphasis(self, text: str) -> str:
+        def repl(m: re.Match) -> str:
+            if self._marker_kind(m.group(1)) != self._marker_kind(m.group(3)):
+                return m.group(0)
+            return m.group(2)
+        return self._EMPH_SHORT.sub(repl, text)
 
     # A parenthesised English gloss after Thai — `ด้านราคาและความคุ้มค่า (Cost &
     # Licensing)` — exists for a reader scanning a page. Spoken, it says the
@@ -241,7 +261,7 @@ class ThaiNormalizer:
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
         text = self._strip_latex(text)
-        text = self._EMPH_SHORT.sub(r"\1", text)
+        text = self._emphasis(text)
         # After the markers are gone, not before: `"เพ้อเจ้อ" (Verbose)` has a
         # quote sitting between the Thai and the bracket, and the gloss rule
         # needs to see the Thai.
@@ -257,6 +277,9 @@ class ThaiNormalizer:
         # Colons become pauses — except between digits, where the colon is a
         # clock and removing it here would leave _times nothing to match.
         text = re.sub(r"(?<!\d):(?!\d\d)", " ", text)
+        # An en or em dash between numbers is a range written long-hand —
+        # `27 — 84`. Everything else is punctuation and becomes a pause.
+        text = re.sub(r"(?<=\d)\s*[\u2013\u2014]\s*(?=\d)", "-", text)
         text = re.sub(r"[\u2013\u2014]", " ", text)
         # An ellipsis is a pause in writing and a stumble when read aloud.
         text = re.sub(r"\.{2,}|\u2026", " ", text)
@@ -474,20 +497,46 @@ class ThaiNormalizer:
             return f"{num_to_thai(h)}นาฬิกา{num_to_thai(mi)}นาที"
         return re.sub(r"\b(\d{1,2}):(\d{2})\b(?:\s*น\.)?", repl, text)
 
+    _MONTHS = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม",
+               "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม",
+               "พฤศจิกายน", "ธันวาคม"]
+
     def _dates(self, text: str) -> str:
+        def repl_iso(m: re.Match) -> str:
+            y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+            if not (1 <= d <= 31 and 1 <= mo <= 12):
+                return m.group(0)
+            prefix = text[: m.start()].rstrip()
+            lead = "" if prefix.endswith("วันที่") else "วันที่"
+            return f"{lead}{num_to_thai(d)} {self._MONTHS[mo]} {num_to_thai(y)}"
+
         def repl(m: re.Match) -> str:
             d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
             if not (1 <= d <= 31 and 1 <= mo <= 12):
                 return m.group(0)
-            months = ["", "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม",
-                      "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม",
-                      "พฤศจิกายน", "ธันวาคม"]
             # The writer usually supplies "วันที่" already; adding another
             # produces "วันที่ วันที่สิบ".
             prefix = text[: m.start()].rstrip()
             lead = "" if prefix.endswith("วันที่") else "วันที่"
-            return f"{lead}{num_to_thai(d)} {months[mo]} {num_to_thai(y)}"
+            return f"{lead}{num_to_thai(d)} {self._MONTHS[mo]} {num_to_thai(y)}"
+        # ISO order first — 2026-09-11. Assistants emit it constantly, and the
+        # day-first pattern below cannot match it, so the hyphens survived to
+        # be read as nothing at all: "สองพันยี่สิบหก ศูนย์เก้า สิบเอ็ด".
+        text = re.sub(
+            r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b",
+            lambda m: repl_iso(m), text)
         return re.sub(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b", repl, text)
+
+    # "28-33 องศาเซลเซียส" is a range. The hyphen is silent, so the two
+    # numbers ran together as though they were a list, and a temperature
+    # forecast became two unrelated readings.
+    # Runs after _phones, _ips and _dates: each of those owns its own hyphens
+    # and has already consumed them. The guards keep it off an ISO date —
+    # in `2026-09-11` the digit after `09` blocks the match.
+    _NUM_RANGE = re.compile(r"(?<![\d.\-/])(\d[\d,]*)\s*-\s*(\d[\d,]*)(?![\d.\-/])")
+
+    def _ranges(self, text: str) -> str:
+        return self._NUM_RANGE.sub(r"\1 ถึง \2", text)
 
     def _percent(self, text: str) -> str:
         return re.sub(r"(\d+(?:\.\d+)?)\s*%",
@@ -498,6 +547,12 @@ class ThaiNormalizer:
         if "." in s:
             whole, frac = s.split(".", 1)
             return _decimal_to_thai(whole, frac)
+        # A leading zero means the digits are an identifier, not a quantity: a
+        # lottery number, a room, a product code. Read as a quantity the zero
+        # is simply gone — "041" came out สี่สิบเอ็ด, a different number, in a
+        # reply whose whole subject was which number it was.
+        if len(s) > 1 and s[0] == "0":
+            return _digits_to_thai(s)
         return num_to_thai(int(s))
 
     # Numbers after these are identifiers, not quantities: nobody says
@@ -546,6 +601,7 @@ class ThaiNormalizer:
         # reading rather than a clock plus a stray "นาฬิกา".
         text = self._ips(text)            # before everything numeric
         text = self._dates(text)          # before times: both eat digit groups
+        text = self._ranges(text)         # after them: they own their hyphens
         text = self._times(text)
         text = self._apply(self._abbr_re, self.abbr, text)
         text = self._percent(text)        # before numbers, or the % is orphaned

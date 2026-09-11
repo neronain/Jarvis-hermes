@@ -583,3 +583,96 @@ class TestLatex:
 
     def test_a_real_dollar_still_speaks(self, tex):
         assert "ดอลลาร์" in tex.normalize("ราคา $50")
+
+
+class TestLeadingZero:
+    """A number that starts with a zero is an identifier, not a quantity."""
+
+    @pytest.fixture
+    def z(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_a_lottery_number_keeps_its_zero(self, z):
+        """`041` came out สี่สิบเอ็ด — a different number, in a reply about
+        which number it was."""
+        assert "ศูนย์สี่หนึ่ง" in z.normalize("ที่แท้คือเลข 041 ใช่ไหมครับ")
+
+    def test_all_zeros(self, z):
+        assert "ศูนย์ศูนย์ศูนย์" in z.normalize("เริ่มจาก 000 ครับ")
+
+    def test_a_decimal_below_one_is_still_a_quantity(self, z):
+        assert z.normalize("อัตรา 0.1 ครับ") == "อัตรา ศูนย์จุดหนึ่ง ครับ"
+
+    def test_a_plain_zero_is_a_quantity(self, z):
+        assert z.normalize("เหลือ 0 ครับ") == "เหลือ ศูนย์ ครับ"
+
+
+class TestRanges:
+    """A hyphen between numbers is silent, so the range ran together."""
+
+    @pytest.fixture
+    def r(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_a_temperature_range(self, r):
+        """`28-33 องศาเซลเซียส` gave ยี่สิบแปด-สามสิบสาม, read as two numbers."""
+        out = r.normalize("อุณหภูมิประมาณ 28-33 องศาเซลเซียส")
+        assert "ยี่สิบแปด ถึง สามสิบสาม" in out
+        assert "-" not in out
+
+    def test_an_em_dash_is_a_range_too(self, r):
+        assert "ยี่สิบเจ็ด ถึง แปดสิบสี่" in r.normalize("ผมให้ไปเป็น 27 — 84 แล้ว")
+
+    def test_a_year_range(self, r):
+        assert "สองพันยี่สิบ ถึง สองพันยี่สิบสี่" in r.normalize("ช่วง 2020-2024 ครับ")
+
+    def test_a_phone_number_is_not_a_range(self, r):
+        out = r.normalize("โทร 02-437-1210")
+        assert "ถึง" not in out
+        assert "ศูนย์สองสี่สามเจ็ดหนึ่งสองหนึ่งศูนย์" in out
+
+
+class TestIsoDates:
+    """Assistants write 2026-09-11; the day-first rule could not match it."""
+
+    @pytest.fixture
+    def d(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_iso_order(self, d):
+        assert d.normalize("อัปเดต 2026-09-11 แล้ว") == \
+            "อัปเดต วันที่สิบเอ็ด กันยายน สองพันยี่สิบหก แล้ว"
+
+    def test_it_does_not_repeat_a_supplied_prefix(self, d):
+        assert d.normalize("วันที่ 2026-09-11").count("วันที่") == 1
+
+    def test_day_first_still_works(self, d):
+        assert "วันที่สิบ กันยายน" in d.normalize("ประชุม 10-09-2026 นะ")
+
+    def test_an_impossible_date_is_left_alone(self, d):
+        assert "กันยายน" not in d.normalize("รหัส 2026-13-45 ครับ")
+
+
+class TestSentenceBreaks:
+    """Emphasis is a marker PAIR. Two different markers are two sentences."""
+
+    @pytest.fixture
+    def e(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_a_new_sentence_is_not_swallowed(self, e):
+        """`...นะครับ 😉 **ถ้าจะให้ผม "จัดเต็ม"` ran together as
+        นะครับถ้าจะให้ผม, losing the break between two sentences."""
+        out = e.normalize('ไม่ให้เดือดร้อนนะครับ 😉 **ถ้าจะให้ผม "จัดเต็ม" กว่านี้')
+        assert "นะครับถ้าจะให้ผม" not in out
+        assert "นะครับ ถ้าจะให้ผม" in out
+
+    def test_a_matching_pair_still_closes_up(self, e):
+        assert "การถูกหวยคือ" in e.normalize('กว่าการ "ถูกหวย" คือการเล่น')
+
+    def test_mixed_but_symmetric_markers_close_up(self, e):
+        assert "ผมนึกว่า" in e.normalize('ผม **"นึก"** ว่าครับ')
