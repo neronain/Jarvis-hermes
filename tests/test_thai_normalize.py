@@ -466,3 +466,8 @@ class TestLinksAndAddresses:
 
     def test_transit_acronyms(self, a):
         assert "บีทีเอส" in a.normalize("ใกล้กับ BTS กรุงธนบุรี")
+
+    def test_a_gloss_is_found_across_a_closing_quote(self, g):
+        """`"เพ้อเจ้อ" (Verbose)` — the quote sits between the word and the bracket."""
+        assert "Verbose" not in g.normalize('ผม "เพ้อเจ้อ" (Verbose) เกินไป')
+        assert "เพ้อเจ้อ" in g.normalize('ผม "เพ้อเจ้อ" (Verbose) เกินไป')

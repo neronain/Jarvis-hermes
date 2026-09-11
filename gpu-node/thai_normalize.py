@@ -192,13 +192,20 @@ class ThaiNormalizer:
     # same thing twice in two languages and doubles the length of every heading.
     # Dropped entirely; the Thai beside it already carried the meaning.
     # Parentheses holding Thai, or numbers, are left alone.
+    # Captures the Thai rather than looking behind it: a closing quote can sit
+    # between the word and the bracket — `"เพ้อเจ้อ" (Verbose)` — and Python's
+    # lookbehind is fixed-width, so it cannot step over one.
     _EN_GLOSS = re.compile(
-        r"(?<=[\u0E00-\u0E7F])\s*\(\s*[A-Za-z][A-Za-z0-9 &/\-.'\u2019]*\)")
+        r"([\u0E00-\u0E7F])[\s\"'*`\u201c\u201d\u2018\u2019]*"
+        r"\(\s*[A-Za-z][A-Za-z0-9 &/\-.'\u2019]*\)")
 
     def _strip_markdown(self, text: str) -> str:
         text = self._EMOJI.sub(" ", text)
-        text = self._EN_GLOSS.sub("", text)
         text = self._EMPH_SHORT.sub(r"\1", text)
+        # After the markers are gone, not before: `"เพ้อเจ้อ" (Verbose)` has a
+        # quote sitting between the Thai and the bracket, and the gloss rule
+        # needs to see the Thai.
+        text = self._EN_GLOSS.sub(r"\1", text)
         text = self._MD_RULE.sub(" ", text)
         text = self._MD_ORDERED.sub(lambda m: f"ข้อ{num_to_thai(int(m.group(1)))}", text)
         text = self._MD_LINK.sub(r"\1", text)
