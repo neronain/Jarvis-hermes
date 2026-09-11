@@ -138,15 +138,15 @@ body::before{
 /* ── centre stage ─────────────────────────────────────────── */
 .stage{display:grid;gap:14px;align-content:start;min-width:0}
 .presence{padding:0;overflow:hidden}
-#orb{display:block;width:100%;height:248px}
-.saidbar{margin:0 16px 16px;padding:11px 15px;border-radius:14px;
+#orb{display:block;width:100%;height:172px}
+.saidbar{margin:0 13px 13px;padding:9px 12px;border-radius:12px;
   background:rgba(11,15,32,.82);border:1px solid var(--stroke);
-  font-family:var(--f-thai);font-size:13.5px;color:var(--ink-hi);
-  display:flex;align-items:center;gap:10px}
+  font-family:var(--f-thai);font-size:12.5px;color:var(--ink-hi);
+  display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .saidbar b{color:var(--cyan);font-weight:500;flex:none}
-.saidbar span{color:var(--mute);font-size:12.5px}
+.saidbar span{color:var(--mute);font-size:11.5px}
 
-.thread{display:grid;gap:11px;max-height:46vh;min-height:180px;overflow-y:auto;padding-right:4px}
+.thread{display:grid;gap:11px;max-height:58vh;min-height:320px;overflow-y:auto;padding-right:4px}
 .thread::-webkit-scrollbar{width:5px}
 .thread::-webkit-scrollbar-thumb{background:rgba(146,174,255,.18);border-radius:99px}
 .msg{display:flex;gap:9px;align-items:flex-start}
@@ -186,7 +186,7 @@ body::before{
 .rowbtn{display:flex;gap:8px}
 
 .mic{display:grid;place-items:center;padding:4px 0 16px;cursor:pointer}
-#micring{display:block;width:min(230px,58vw);height:min(230px,58vw)}
+#micring{display:block;width:min(196px,52vw);height:min(196px,52vw)}
 .mic .state{margin-top:2px;text-align:center}
 .mic .state b{display:block;font-size:15px;color:var(--cyan)}
 .mic .state span{font-family:var(--f-thai);font-size:11.5px;color:var(--mute)}
@@ -257,7 +257,7 @@ body::before{
   .deck{grid-template-columns:minmax(0,1fr)}
   .rail-r{grid-template-columns:minmax(0,1fr)}
   .wrap{padding:12px 12px 20px}
-  .thread{max-height:40vh}
+  .thread{max-height:44vh;min-height:220px}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
@@ -313,11 +313,6 @@ body::before{
 
     <!-- CENTRE — what is happening -->
     <div class="stage">
-      <div class="card hero presence">
-        <canvas id="orb"></canvas>
-        <div class="saidbar"><b id="stateName">พร้อม</b><span id="stateSub">พูดคุยด้วยเสียงภาษาไทย</span></div>
-      </div>
-
       <div class="card">
         <h2>บทสนทนา<span class="tag">LIVE</span>
           <button class="btn stop" id="stopBtn" hidden style="margin-left:8px;padding:3px 10px;font-size:10.5px">หยุด</button>
@@ -342,6 +337,11 @@ body::before{
 
     <!-- RIGHT — what the system reports -->
     <div class="rail rail-r">
+      <div class="card hero presence">
+        <canvas id="orb"></canvas>
+        <div class="saidbar"><b id="stateName">พร้อม</b><span id="stateSub">พูดคุยด้วยเสียงภาษาไทย</span></div>
+      </div>
+
       <div class="card">
         <h2>อุณหภูมิ GPU<span class="tag" id="gpuName">—</span></h2>
         <div class="thermal">
