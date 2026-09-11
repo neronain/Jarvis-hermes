@@ -457,6 +457,14 @@ class ThaiNormalizer:
     # screen in front of them — the HUD shows the written reply, not this.
     _URL = re.compile(r"\bhttps?://(?:www\.)?([^\s/?#]+)[^\s]*", re.I)
 
+    # A hashtag is metadata, not speech. "#AIforEveryone" has no reading — the
+    # "#" is stripped by the marker sweep and what is left is a camelCase run
+    # the voice spells or mangles. Dropped whole, like a URL's path.
+    _HASHTAG = re.compile(r"(?<![\w/])#[\w\u0E00-\u0E7F]+")
+
+    def _hashtags(self, text: str) -> str:
+        return self._HASHTAG.sub(" ", text)
+
     def _urls(self, text: str) -> str:
         def repl(m: re.Match) -> str:
             host = m.group(1)
@@ -677,6 +685,7 @@ class ThaiNormalizer:
         # choice" rule turns "com/maps" into "com หรือ maps", and by the time a
         # URL rule ran there was no URL left to match.
         text = self._urls(text)
+        text = self._hashtags(text)
         text = self._strip_markdown(text)
         text = text.translate(_THAI_DIGIT_MAP)
         # Emails before the @ symbol rule, or the address is torn apart.

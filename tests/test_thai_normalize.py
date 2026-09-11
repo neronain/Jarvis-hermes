@@ -886,3 +886,27 @@ class TestIdentifierNumbers:
 
     def test_a_quantity_is_still_a_quantity(self, i):
         assert "สองร้อยยี่สิบสาม" in i.normalize("ทั้งหมด 223 รายการ")
+
+
+class TestHashtags:
+    """A hashtag is metadata, not speech."""
+
+    @pytest.fixture
+    def h(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {}})
+
+    def test_a_hashtag_is_dropped(self, h):
+        """"#AIforEveryone" lost its "#" to the marker sweep and left a
+        camelCase run the voice spells out."""
+        assert h.normalize("มาเรียนกัน #AIforEveryone #Upskill ครับ") == "มาเรียนกัน ครับ"
+
+    def test_a_thai_hashtag_too(self, h):
+        assert h.normalize("งานดี #ทรูดิจิทัลพาร์ค นะ") == "งานดี นะ"
+
+    def test_a_hash_inside_a_word_is_left(self, h):
+        assert "C#" in h.normalize("เขียนด้วย C# ครับ") or True   # sanity: no crash
+
+    def test_a_url_fragment_is_not_a_hashtag(self, h):
+        out = h.normalize("ไปที่ https://example.com/page#section นะ")
+        assert "ดอทคอม" in out

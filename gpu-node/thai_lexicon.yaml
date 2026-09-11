@@ -78,6 +78,60 @@ symbols:
 # คำอังกฤษ / ศัพท์เทคนิค — เขียนเป็นคำอ่านไทยที่คนไทยพูดกันจริง
 # ---------------------------------------------------------------------------
 words:
+  ChatGPT: แชตจีพีที
+  GANs: แกนส์
+  General: เจเนอรัล
+  Natural: แนเชอรัล
+  "Neural Networks": นิวรัลเน็ตเวิร์ก
+  Neural: นิวรัล
+  One: วัน
+  All: ออล
+  TrueDigitalPark: ทรู ดิจิทัล พาร์ค
+  "True Digital Park": ทรู ดิจิทัล พาร์ค
+  "Artificial Intelligence": ปัญญาประดิษฐ์
+  Artificial: อาร์ทิฟิเชียล
+  Intelligence: อินเทลลิเจนซ์
+  Generative: เจเนอเรทีฟ
+  Adversarial: แอดเวอร์แซเรียล
+  Networks: เน็ตเวิร์ก
+  "Neural Network": นิวรัลเน็ตเวิร์ก
+  "Deep learning": ดีปเลิร์นนิง
+  "Machine Learning": แมชชีนเลิร์นนิง
+  learning: เลิร์นนิง
+  Learning: เลิร์นนิง
+  "Zero-shot": ซีโร่ช็อต
+  shot: ช็อต
+  Language: แลงกวิจ
+  Processing: โพรเซสซิง
+  Engineering: เอ็นจิเนียริง
+  Hallucination: ฮาลูซิเนชัน
+  Experience: เอ็กซ์พีเรียนซ์
+  Search: เสิร์ช
+  Transformer: ทรานส์ฟอร์มเมอร์
+  Chatbot: แชตบอต
+  Algorithm: อัลกอริทึม
+  Alignment: อะไลน์เมนต์
+  Quantization: ควอนไทเซชัน
+  Diffusion: ดิฟฟิวชัน
+  Overfitting: โอเวอร์ฟิตติง
+  Guardrails: การ์ดเรล
+  Multimodal: มัลติโมดัล
+  Autonomous: ออโตโนมัส
+  Temperature: เทมเพอเรเชอร์
+  Parameters: พารามิเตอร์
+  Parameter: พารามิเตอร์
+  Bias: ไบแอส
+  Ethics: จริยธรรม
+  Safety: ความปลอดภัย
+  Agentive: เอเจนทีฟ
+  McKinsey: แมคคินซีย์
+  Global: โกลบอล
+  Institute: อินสติทิวต์
+  Fanpage: แฟนเพจ
+  Official: ออฟฟิเชียล
+  Account: แอ็กเคานต์
+  Possibilities: พอสซิบิลิตี้
+  Roof: รูฟ
   github: กิตฮับ
   gitlab: กิตแล็บ
   wikipedia: วิกิพีเดีย
