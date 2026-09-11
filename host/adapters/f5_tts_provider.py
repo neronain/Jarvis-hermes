@@ -96,9 +96,20 @@ class F5TTSProvider:
     # straight against each other. A deliberate gap here reads as punctuation;
     # inheriting the model's ~0.6 s of accidental padding read as hesitation.
     pause_ms: int = 140
-    # The first chunk is the wait before any sound at all; keep it short.
-    # 0 disables the behaviour entirely.
-    first_chunk_chars: int = 60
+    # OFF, and the measurement is why. Shortening the first chunk does buy time
+    # — but F5-TTS is zero-shot and conditions on the text it is given, so a
+    # short chunk comes out duller. Same sentence, same node, energy in the
+    # band Thai consonants live in:
+    #
+    #     28 chars   0.99%        116 chars  2.84%
+    #     50 chars   1.57-2.02%   full       2.30-3.24%
+    #
+    # Quality only returns by about 115 characters, and at 115 the synthesis
+    # takes 1.27-1.49 s against 1.26 s for the whole reply unsplit. There is no
+    # length that is both faster and not duller: the trade is not available.
+    # It was on for an hour and the first person to hear it said "ตอบมัวมาก".
+    # Left configurable for a voice that tolerates it; 0 disables.
+    first_chunk_chars: int = 0
     # A break made mid-sentence to get sound out sooner is not punctuation and
     # must not sound like it.
     soft_pause_ms: int = 40
