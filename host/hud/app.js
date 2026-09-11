@@ -43,6 +43,7 @@
     agentBusy: false, lastAudioAt: 0,
     level: 0, turns: 0, currentRun: null,
     lastFrameAt: 0, recovering: false,
+    camStream: null, camFacing: "environment",
     preroll: [], ackBuffers: [], ackTimer: null,
     latency: [], liveEl: null,
     uiState: "standby",
@@ -386,6 +387,7 @@ registerProcessor("pcm16k",PCM16K);`;
     $("panelTitle").textContent = e.title || "แผนที่";
     $("panelMode").textContent = MODE_LABEL[e.mode] || (e.media || "").toUpperCase();
     const src = e.src || "";
+    if (e.media === "camera") { openCamera(e.facing); return; }
     if (e.media === "image") {
       body.innerHTML = '<img alt="' + esc(e.title || "") + '" src="' + esc(src) + '">';
     } else if (e.media === "video") {
@@ -409,14 +411,98 @@ registerProcessor("pcm16k",PCM16K);`;
   function dismissPanel() {
     const p = $("stagePanel");
     if (!p || p.hidden) return;
+    stopCamera();                      // the indicator light goes off with it
     p.hidden = true;
     $("panelBody").innerHTML = "";     // stop whatever was playing or polling
+    $("panelActions").innerHTML = "";
     $("chatCard").hidden = false;
+  }
+
+  /* ─────────────────────────── the camera ───────────────────────── */
+
+  /* Shown in the same panel as a map, and closed the same way: ✕ or Escape.
+     Closing stops the track rather than only hiding the preview — a camera
+     that is still running behind a hidden element is a camera the person
+     thinks they turned off. */
+  function stopCamera() {
+    if (!S.camStream) return;
+    try { S.camStream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    S.camStream = null;
+  }
+
+  async function openCamera(facing) {
+    if (!window.isSecureContext) {
+      addMsg("sys", "ต้องเปิด HUD ผ่าน https (พอร์ต 8766) — เบราว์เซอร์ไม่ให้เปิดกล้องบน http ธรรมดา");
+      return;
+    }
+    S.camFacing = facing || S.camFacing || "environment";
+    stopCamera();
+    try {
+      S.camStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: S.camFacing, width: { ideal: 1920 }, height: { ideal: 1080 } },
+        audio: false,
+      });
+    } catch (err) {
+      addMsg("sys", "เปิดกล้องไม่ได้: " + (err.message || err));
+      return;
+    }
+    $("panelTitle").textContent = "กล้อง";
+    $("panelMode").textContent = S.camFacing === "user" ? "กล้องหน้า" : "กล้องหลัง";
+    const body = $("panelBody");
+    body.innerHTML = '<video id="camView" autoplay playsinline muted></video>';
+    $("camView").srcObject = S.camStream;
+    $("panelActions").innerHTML =
+      '<button class="btn" id="camShot">ถ่ายแล้วให้อ่าน</button>' +
+      '<button class="btn" id="camFlip">สลับกล้อง</button>' +
+      '<input id="camAsk" type="text" placeholder="อยากถามอะไรเกี่ยวกับภาพนี้ (ไม่ใส่ก็ได้)">';
+    $("camShot").onclick = captureAndAsk;
+    $("camFlip").onclick = () => openCamera(S.camFacing === "user" ? "environment" : "user");
+    $("camAsk").addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); captureAndAsk(); }
+    });
+    $("chatCard").hidden = true;
+    $("stagePanel").hidden = false;
+  }
+
+  async function captureAndAsk() {
+    const v = $("camView");
+    if (!v || !v.videoWidth) { addMsg("sys", "กล้องยังไม่พร้อม รออีกครู่"); return; }
+    // 1280 wide is where a document stops getting more readable and the
+    // upload starts getting slower.
+    const w = Math.min(1280, v.videoWidth);
+    const h = Math.round(v.videoHeight * (w / v.videoWidth));
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(v, 0, 0, w, h);
+    const image = c.toDataURL("image/jpeg", 0.82);
+
+    const ask = $("camAsk");
+    const question = ask ? ask.value.trim() : "";
+    const btn = $("camShot");
+    if (btn) { btn.disabled = true; btn.textContent = "กำลังดู…"; }
+    addMsg("me", question || "[ภาพจากกล้อง]");
+    setState("thinking", "กำลังดูภาพ…");
+    try {
+      const r = await fetch("/api/look", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image, question, conversation: CONV }),
+      });
+      const j = await r.json();
+      if (j.error) addMsg("sys", j.error);
+      else if (j.text) addMsg("ai", j.text);
+      S.turns++;
+    } catch (err) {
+      addMsg("sys", "ส่งภาพไม่สำเร็จ: " + err.message);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "ถ่ายแล้วให้อ่าน"; }
+      setState("standby", S.handsFree ? "พูดได้เลย ไม่ต้องกด" : "กดปุ่ม AI เพื่อเริ่มคุยต่อเนื่อง");
+    }
   }
 
   /* Typed "แผนที่ <ที่ไหน>" is a shortcut past the agent, for when you just
      want to look at somewhere. "ทางไป <ที่ไหน>" adds your own position. */
   const MAP_PREFIX = /^\s*(?:แผนที่|map|ดาวเทียม|satellite|earth|โลก3มิติ|3d)\s+(.+)$/i;
+  const CAM_PREFIX = /^\s*(?:เปิดกล้อง|กล้อง|ดูนี่|อ่านเอกสาร|ถ่ายรูป|camera|look)\s*(.*)$/i;
   const ROUTE_PREFIX =
     /^\s*(?:ทางไป|เส้นทางไป|เส้นทาง|ไปยัง|จาก(?:ที่|พิกัด)?(?:ผม|ฉัน)?(?:อยู่)?ไป|route to|directions to)\s+(.+)$/i;
 
@@ -610,6 +696,11 @@ registerProcessor("pcm16k",PCM16K);`;
      the websocket instead, which is why these two paths look different. */
   async function sendText(text) {
     if (!text) return;
+    const cam = text.match(CAM_PREFIX);
+    if (cam) {
+      addMsg("me", text);
+      return openCamera(/หน้า|front|selfie/i.test(cam[1] || "") ? "user" : "environment");
+    }
     const r = text.match(ROUTE_PREFIX);
     if (r) {
       addMsg("me", text);
@@ -976,6 +1067,9 @@ registerProcessor("pcm16k",PCM16K);`;
     });
     document.querySelectorAll("[data-prompt]").forEach((b) => {
       b.onclick = () => sendText(b.dataset.prompt);
+    });
+    document.querySelectorAll('[data-shortcut="camera"]').forEach((b) => {
+      b.onclick = () => openCamera();
     });
     const input = $("textInput");
     if (input) input.addEventListener("keydown", (e) => {

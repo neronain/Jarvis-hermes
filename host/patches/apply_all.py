@@ -25,7 +25,7 @@ from pathlib import Path
 # a future conflict is resolved here rather than by import order.
 PATCHES = ["apply_f5_tts.py", "apply_hud_fixes.py", "apply_handsfree.py",
            "apply_voicemode.py", "apply_turn_context.py",
-           "apply_maps.py"]
+           "apply_maps.py", "apply_camera.py"]
 
 # Every file any patcher touches, so the base is clean before the first one runs.
 TOUCHED = ["server/server.py", "server/hud/index.html"]
