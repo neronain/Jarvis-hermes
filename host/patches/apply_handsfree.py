@@ -47,7 +47,34 @@ ACK_ENDPOINT = '''
 # reads as the machine being unsure rather than as it having heard you, which
 # is the opposite of what this clip is for.
 ACK_TEXTS = ["ครับ", "ได้ครับ", "รับทราบครับ"]
+
+# A turn that runs a tool can take minutes. One measured 169 seconds against an
+# ERP and produced not one sound in all of it — the acknowledgement at 1.8 s,
+# then nothing, and eventually somebody spoke over it out of impatience and
+# the whole run was thrown away. Silence is the worst possible report on work
+# in progress: it is indistinguishable from a system that has died.
+WORKING_TEXTS = ["กำลังทำงานอยู่ครับ", "ขอเวลาอีกสักครู่ครับ", "ยังทำอยู่ครับ รอสักครู่"]
 _ACK_CACHE: dict = {}
+
+
+@app.get("/api/working")
+async def working(i: int = 0):
+    """A short "still on it" clip, for a turn that is taking minutes."""
+    from fastapi.responses import Response as _Resp
+    if i >= len(WORKING_TEXTS):
+        return _Resp(status_code=404, content=b"")
+    key = ("working", i)
+    if key not in _ACK_CACHE:
+        pcm = b""
+        voice = CFG.get("voice") or {}
+        try:
+            if voice.get("provider") == "f5_tts_th":
+                from f5_tts_provider import F5TTSProvider
+                pcm = F5TTSProvider.from_config(voice).synthesize(WORKING_TEXTS[i])
+        except Exception:
+            import traceback; traceback.print_exc()
+        _ACK_CACHE[key] = pcm
+    return _Resp(content=_ACK_CACHE[key], media_type="application/octet-stream")
 
 
 @app.get("/api/ack")

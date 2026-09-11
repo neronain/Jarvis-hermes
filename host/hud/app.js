@@ -85,6 +85,7 @@
     level: 0, turns: 0, currentRun: null,
     lastFrameAt: 0, recovering: false,
     camStream: null, camFacing: "environment", waitTimer: null,
+    workBuffers: [], progressTimer: null, progressFirst: null,
     preroll: [], ackBuffers: [], ackTimer: null,
     latency: [], liveEl: null,
     uiState: "standby",
@@ -176,6 +177,56 @@
       } catch (e) { /* no acknowledgement is duller, not broken */ }
     }
   }
+  /* Progress, spoken. A tool-running turn can go minutes without a sound, and
+     one measured 169 seconds before somebody spoke over it out of impatience
+     and lost the lot. These say "still here" at 15 s and then every 30 s, so
+     the room can tell work from death without looking at the screen. */
+  async function loadWorking() {
+    S.workBuffers = [];
+    const ctx = ensureCtx();
+    for (let i = 0; i < 6; i++) {
+      try {
+        const r = await fetch("/api/working?i=" + i);
+        if (r.status === 404) break;
+        if (!r.ok) continue;
+        const raw = await r.arrayBuffer();
+        if (raw.byteLength < 640) continue;
+        const i16 = new Int16Array(raw), f32 = new Float32Array(i16.length);
+        for (let k = 0; k < i16.length; k++) f32[k] = i16[k] / 32768;
+        const ab = ctx.createBuffer(1, f32.length, S.ttsRate);
+        ab.copyToChannel(f32, 0);
+        S.workBuffers.push(ab);
+      } catch (e) {}
+    }
+  }
+
+  function startProgress() {
+    stopProgress();
+    let n = 0;
+    S.progressTimer = setInterval(() => {
+      // Only while nothing else is coming out: over the reply it would be noise.
+      if (!S.agentBusy || botSpeaking()) return;
+      const b = S.workBuffers;
+      if (!b || !b.length || !S.audioCtx) return;
+      const ab = b[n++ % b.length];
+      const src = S.audioCtx.createBufferSource();
+      src.buffer = ab; src.connect(S.audioCtx.destination); src.start();
+      S.lastAudioAt = performance.now() + ab.duration * 1000;
+    }, 30000);
+    S.progressFirst = setTimeout(() => {
+      if (S.agentBusy && !botSpeaking() && S.workBuffers && S.workBuffers.length) {
+        const src = S.audioCtx.createBufferSource();
+        src.buffer = S.workBuffers[0];
+        src.connect(S.audioCtx.destination); src.start();
+        S.lastAudioAt = performance.now() + S.workBuffers[0].duration * 1000;
+      }
+    }, 15000);
+  }
+  function stopProgress() {
+    if (S.progressTimer) { clearInterval(S.progressTimer); S.progressTimer = null; }
+    if (S.progressFirst) { clearTimeout(S.progressFirst); S.progressFirst = null; }
+  }
+
   function armAck() {
     cancelAck();
     S.ackTimer = setTimeout(() => { S.ackTimer = null; playAck(); }, vad.cfg.ackDelayMs);
@@ -368,7 +419,8 @@ registerProcessor("pcm16k",PCM16K);`;
   }
 
   function setState(st, hint) {
-    if (st === "thinking" || st === "tool") startWaitClock(); else stopWaitClock();
+    if (st === "thinking" || st === "tool") { startWaitClock(); startProgress(); }
+    else { stopWaitClock(); stopProgress(); }
     S.uiState = st;
     S.agentBusy = (st === "thinking" || st === "tool" || st === "speaking");
     if (st === "standby") cancelAck();
@@ -687,7 +739,12 @@ registerProcessor("pcm16k",PCM16K);`;
           // A dropped turn is the silence gate working, not a failure worth
           // shouting about while hands-free is running.
           const quiet = S.handsFree && /no transcript/i.test(e.message || "");
-          if (!quiet) addMsg("sys", e.message);
+          if (/cancelled|barge-in/i.test(e.message || "")) {
+            // Silence is the one answer that tells you nothing. A turn that
+            // ran for minutes and was then interrupted has to say so, or it
+            // looks exactly like a turn that was never heard.
+            addMsg("sys", "เทิร์นนั้นถูกยกเลิกกลางทาง — พูดใหม่ได้เลยครับ");
+          } else if (!quiet) addMsg("sys", e.message);
           setState("standby", S.handsFree ? "พูดได้เลย ไม่ต้องกด" : "กดวงแหวนหรือ Space");
           break;
         }
@@ -744,7 +801,7 @@ registerProcessor("pcm16k",PCM16K);`;
     }
     try { await initMic(); }
     catch (err) { addMsg("sys", "เปิดไมค์ไม่ได้: " + err.message); return; }
-    loadAcks();                        // not awaited: the first turn can go without
+    loadAcks(); loadWorking();         // not awaited: the first turn can go without
     S.handsFree = true;
     micHealth(true, "");
     vad.enable();
