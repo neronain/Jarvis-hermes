@@ -35,6 +35,8 @@ hermes:
     -d '{"q":"ชื่อสถานที่","mode":"satellite"}'
     mode ใช้ได้: satellite, earth (ดาวเทียมซูมสูง), streetview, directions
     ถ้าผู้ใช้พูดว่า "จากที่ผมอยู่" หรือ "ทางไป" ให้ใส่ origin เป็น "here"
+    เปิดกล้องให้ผู้ใช้ได้ด้วย POST /api/camera {"facing":"environment"}
+    แล้วบอกให้เขากดปุ่ม ถ่ายแล้วให้อ่าน — คุณไม่เห็นภาพจนกว่าเขาจะกด
 
 stt:
   # Local fallback — runs on the host CPU when the GPU node is unreachable.

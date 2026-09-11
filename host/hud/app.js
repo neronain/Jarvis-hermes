@@ -430,10 +430,25 @@ registerProcessor("pcm16k",PCM16K);`;
     S.camStream = null;
   }
 
+  /* The panel always opens, and holds either the preview or the reason there
+     isn't one. When it failed silently the agent said "camera's open" — true
+     from where it stood, since it had asked — while the screen showed nothing
+     and the message explaining why scrolled past in the transcript. */
+  function cameraProblem(title, detail) {
+    $("panelTitle").textContent = "กล้อง";
+    $("panelMode").textContent = "";
+    $("panelBody").innerHTML = '<div class="msg-empty"><div><b>' + esc(title) + "</b>" +
+      detail + "</div></div>";
+    $("panelActions").innerHTML = "";
+    $("chatCard").hidden = true;
+    $("stagePanel").hidden = false;
+  }
+
   async function openCamera(facing) {
     if (!window.isSecureContext) {
-      addMsg("sys", "ต้องเปิด HUD ผ่าน https (พอร์ต 8766) — เบราว์เซอร์ไม่ให้เปิดกล้องบน http ธรรมดา");
-      return;
+      return cameraProblem("เปิดกล้องบน http ไม่ได้",
+        "เบราว์เซอร์อนุญาตให้ใช้กล้องเฉพาะหน้าเว็บที่ปลอดภัย<br>" +
+        "เปิด HUD ผ่าน <code>https</code> พอร์ต <code>8766</code> แทนพอร์ต 8765");
     }
     S.camFacing = facing || S.camFacing || "environment";
     stopCamera();
@@ -443,8 +458,12 @@ registerProcessor("pcm16k",PCM16K);`;
         audio: false,
       });
     } catch (err) {
-      addMsg("sys", "เปิดกล้องไม่ได้: " + (err.message || err));
-      return;
+      const name = err && err.name;
+      return cameraProblem(
+        name === "NotAllowedError" ? "ยังไม่ได้อนุญาตให้ใช้กล้อง"
+          : name === "NotFoundError" ? "ไม่พบกล้องบนเครื่องนี้"
+          : "เปิดกล้องไม่ได้",
+        esc(err && err.message ? err.message : String(err)));
     }
     $("panelTitle").textContent = "กล้อง";
     $("panelMode").textContent = S.camFacing === "user" ? "กล้องหน้า" : "กล้องหลัง";

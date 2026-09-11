@@ -100,6 +100,27 @@ async def look(request: Request) -> JSONResponse:
     return JSONResponse({"text": text, "tools": out.get("tools", [])})
 
 
+@app.post("/api/camera")
+async def open_camera(request: Request) -> JSONResponse:
+    """Ask every connected HUD to open its camera.
+
+    The agent could not do this at all until now — it has been telling people
+    "I can't open the camera", correctly, because nothing existed for it to
+    call. It still cannot see anything on its own: opening the camera shows a
+    preview and waits for the person to press the shutter.
+
+    Body: {"facing": "environment"|"user"}  or  {"action": "dismiss"}
+    """
+    body = await request.json()
+    if body.get("action") == "dismiss":
+        return JSONResponse({"sent_to": await _broadcast({"type": "dismiss_panels"})})
+    facing = "user" if str(body.get("facing", "")).lower() in ("user", "front", "หน้า") \
+        else "environment"
+    sent = await _broadcast({"type": "summon_panel", "media": "camera", "facing": facing})
+    return JSONResponse({"sent_to": sent, "facing": facing,
+                         "note": "preview opened; the user presses the shutter"})
+
+
 async def _speak_to_all(text: str) -> None:
     pipeline = get_pipeline()
     timing = TurnTiming(turn_id=-1)
@@ -120,6 +141,18 @@ async def _speak_to_all(text: str) -> None:
 
 
 '''
+
+# Same loopback exemption as /api/map, and the same argument: the agent runs on
+# this host, the alternative is putting the HUD token in the prompt, and the
+# endpoint takes no URL and no content — only "open the camera, front or back".
+AUTH_OLD = (
+    '    if (request.url.path == "/api/map"\n'
+    '            and request.client and request.client.host in ("127.0.0.1", "::1")):'
+)
+AUTH_NEW = (
+    '    if (request.url.path in ("/api/map", "/api/camera")\n'
+    '            and request.client and request.client.host in ("127.0.0.1", "::1")):'
+)
 
 ANCHOR = '@app.post("/api/summon")'
 
@@ -149,7 +182,10 @@ def main(argv: list[str]) -> int:
     if not server.exists():
         print(f"missing: {server}", file=sys.stderr)
         return 1
-    print("server.py:", _patch(server, [(ANCHOR, BLOCK.lstrip("\n") + ANCHOR)], MARKER))
+    print("server.py:", _patch(server, [
+        (ANCHOR, BLOCK.lstrip("\n") + ANCHOR),
+        (AUTH_OLD, AUTH_NEW),
+    ], MARKER))
     return 0
 
 
