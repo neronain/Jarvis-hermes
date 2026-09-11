@@ -4,6 +4,7 @@ Every case here comes from a real mispronunciation measured on the deployed
 model — the text was synthesised, transcribed back with Whisper, and came out
 wrong. The assertions describe what the model must be handed instead.
 """
+import importlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "gpu-node"))
 spec = importlib.util.spec_from_file_location("thai_normalize", ROOT / "gpu-node" / "thai_normalize.py")
 tn = importlib.util.module_from_spec(spec)
 sys.modules["thai_normalize"] = tn
@@ -518,3 +520,28 @@ class TestNetworkText:
     def test_a_port_pair_is_read_consistently(self, net):
         """80 digit-by-digit and 443 as a quantity is worse than either alone."""
         assert "แปดศูนย์ ทับ สี่สี่สาม" in net.normalize("Port 80/443")
+
+
+class TestTransliteration:
+    """The phonetic fallback, and why it is not on by default."""
+
+    def test_a_known_word_gets_a_pronunciation(self):
+        t = importlib.import_module("en_to_thai")
+        assert t.transliterate("container")
+        assert t.source("container") == "cmudict"
+
+    def test_an_unknown_word_returns_nothing(self):
+        """Spelling guesses produced เวอร์เอะช็อรก for Wireshark — worse than
+        leaving it in English, since the model at least attempts what it sees."""
+        t = importlib.import_module("en_to_thai")
+        assert t.transliterate("wireshark") is None
+        assert t.transliterate("wireshark", allow_spelling=True)
+
+    def test_it_is_off_unless_asked_for(self):
+        import thai_normalize
+        assert thai_normalize.AUTO_TRANSLITERATE is False
+
+    def test_the_lexicon_still_wins(self):
+        n = tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {}, "words": {"container": "คอนเทนเนอร์"}})
+        assert "คอนเทนเนอร์" in n.normalize("ระบบ container ทำงาน")

@@ -29,6 +29,7 @@ before ``23`` is read as a number.
 """
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -102,6 +103,14 @@ def _digits_to_thai(s: str) -> str:
 # ---------------------------------------------------------------- lexicon
 
 _DEFAULT_LEXICON = Path(__file__).with_name("thai_lexicon.yaml")
+
+# Sound out English words the lexicon does not know. Off by default, and the
+# measurement is why: read back through the STT, leaving English scores 15%
+# against the correct Thai and auto-transliteration 28% — better on average,
+# but it makes some words worse rather than better (container went from 82% to
+# 43%), and a curated entry scores far above either. An inconsistent
+# improvement is not one you switch on for everybody.
+AUTO_TRANSLITERATE = os.environ.get("JARVIS_TTS_AUTO_TRANSLIT", "0") == "1"
 
 
 def load_lexicon(path: Path | None = None) -> Dict[str, Dict[str, str]]:
@@ -270,6 +279,15 @@ class ThaiNormalizer:
                 return self._spell_token(head) + " " + spoken
         return " ดอท ".join(self._spell_token(part) for part in domain.split("."))
 
+    @staticmethod
+    def _transliterate(token: str) -> Optional[str]:
+        """Phonetic fallback for a word the lexicon has never seen."""
+        try:
+            from en_to_thai import transliterate
+            return transliterate(token)
+        except Exception:
+            return None   # the module is optional; raw text still speaks
+
     def _spell_token(self, token: str) -> str:
         """A word if the lexicon knows it, else its parts, else letter by letter.
 
@@ -290,6 +308,11 @@ class ThaiNormalizer:
         # perfect recitation of its spelling.
         if len(token) <= 4:
             return spell_latin(token)
+        # Longer than an acronym and unknown. Sounding it out is opt-in for the
+        # same reason it is everywhere else: measured against correct Thai it
+        # helps on average and hurts on particular words.
+        if AUTO_TRANSLITERATE:
+            return self._transliterate(token) or token
         return token
 
     @staticmethod
@@ -370,6 +393,20 @@ class ThaiNormalizer:
                 return spoken
             return "เวอร์ชัน" + spoken
         return self._VERSION.sub(repl, text)
+
+    # Anything left in Latin after the lexicon and the acronym pass. Off by
+    # default — see AUTO_TRANSLITERATE. Five characters or more, so acronyms and
+    # short tokens keep their own handling.
+    _LATIN_WORD = re.compile(r"\b[A-Za-z][A-Za-z'\u2019-]{4,}\b")
+
+    def _latin_words(self, text: str) -> str:
+        known = {k.lower() for k in self.words}
+        def repl(m: re.Match) -> str:
+            w = m.group(0)
+            if w.lower() in known:
+                return w          # the lexicon pass already had its chance
+            return self._transliterate(w) or w
+        return self._LATIN_WORD.sub(repl, text)
 
     # A run of capitals is an acronym, not a word: CYN, GPU, ID, API.
     _ACRONYM = re.compile(r"\b[A-Z]{2,6}\b")
@@ -472,6 +509,8 @@ class ThaiNormalizer:
         text = self._versions(text)       # before numbers, or "v9" loses its v
         text = self._apply(self._word_re, self.words, text)
         text = self._acronyms(text)   # after the lexicon: GPU is known, CYN is not
+        if AUTO_TRANSLITERATE:
+            text = self._latin_words(text)
         for sym, spoken in self.symbols.items():
             text = text.replace(sym, spoken)
         text = self._numbers(text)
