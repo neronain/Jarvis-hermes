@@ -38,7 +38,25 @@ LOG = logging.getLogger("jarvis.voice.f5")
 _SENTENCE_RE = re.compile(r"[^.!?。！？\n]+[.!?。！？\n]?")
 
 
-def split_sentences(text: str, max_chars: int = 220) -> List[str]:
+def split_sentences(text: str, max_chars: int = 220, first_max: int = 0) -> List[str]:
+    """Chunks for synthesis, shortest one first.
+
+    F5-TTS renders a whole chunk before returning any of it, so the first
+    chunk IS the time-to-first-audio. Measured on the deployed node:
+
+        12 chars  0.56 s      138 chars  1.21 s
+        61 chars  0.70 s      408 chars  1.55 s
+
+    ~0.5 s fixed plus ~2.5 ms a character. Thai frequently carries no sentence
+    punctuation at all, so an entire reply arrives as one chunk and the room
+    waits 1.2 s for the first sound of it. Breaking the FIRST chunk short at a
+    space — which in Thai is a phrase boundary, not a word boundary — puts
+    sound in the air about half a second sooner and costs nothing, because the
+    rest synthesises while it plays.
+
+    Only the first: later chunks are already streaming behind audio that is
+    playing, where a longer chunk is the better trade.
+    """
     chunks: List[str] = []
     for raw in _SENTENCE_RE.findall(text or ""):
         s = raw.strip()
@@ -51,7 +69,14 @@ def split_sentences(text: str, max_chars: int = 220) -> List[str]:
             s = s[cut:].strip()
         if s:
             chunks.append(s)
-    return chunks
+    if first_max and chunks and len(chunks[0]) > first_max:
+        head = chunks[0]
+        cut = head.rfind(" ", 0, first_max + 1)
+        # Not at any cost: a break in the first few characters is a stutter,
+        # not a phrase, so leave the chunk alone rather than clip it.
+        if cut >= first_max // 3:
+            chunks[0:1] = [head[:cut].strip(), head[cut:].strip()]
+    return [c for c in chunks if c]
 
 
 @dataclass
@@ -71,6 +96,12 @@ class F5TTSProvider:
     # straight against each other. A deliberate gap here reads as punctuation;
     # inheriting the model's ~0.6 s of accidental padding read as hesitation.
     pause_ms: int = 140
+    # The first chunk is the wait before any sound at all; keep it short.
+    # 0 disables the behaviour entirely.
+    first_chunk_chars: int = 60
+    # A break made mid-sentence to get sound out sooner is not punctuation and
+    # must not sound like it.
+    soft_pause_ms: int = 40
     session: requests.Session = field(default_factory=requests.Session, repr=False)
 
     @classmethod
@@ -130,9 +161,10 @@ class F5TTSProvider:
 
     # -- pipeline API ------------------------------------------------------
 
-    def _pause(self) -> bytes:
-        """A gap between sentences, as int16 silence at the pipeline's rate."""
-        return b"\x00\x00" * int(self.sample_rate * self.pause_ms / 1000)
+    def _pause(self, ms: int | None = None) -> bytes:
+        """A gap between chunks, as int16 silence at the pipeline's rate."""
+        ms = self.pause_ms if ms is None else ms
+        return b"\x00\x00" * int(self.sample_rate * ms / 1000)
 
     def stream(self, text: str) -> Iterator[bytes]:
         """Yield PCM per sentence so the HUD can start playing immediately.
@@ -141,17 +173,23 @@ class F5TTSProvider:
         reply — losing one sentence beats losing the turn. The pause goes
         *between* sentences only: a trailing one would delay the turn ending.
         """
-        first = True
-        for chunk in split_sentences(text, self.max_chars):
+        chunks = split_sentences(text, self.max_chars, self.first_chunk_chars)
+        prev = None
+        for chunk in chunks:
             try:
                 audio = self.synthesize(chunk)
             except Exception:
                 LOG.exception("sentence failed, skipping: %r", chunk[:60])
                 continue
-            if not first and self.pause_ms > 0:
-                yield self._pause()
+            if prev is not None:
+                # A full pause after punctuation, a short one after a break we
+                # made ourselves — the sentence is still running through it.
+                soft = not prev.rstrip().endswith((".", "!", "?", "。", "！", "？"))
+                ms = self.soft_pause_ms if soft else self.pause_ms
+                if ms > 0:
+                    yield self._pause(ms)
             yield audio
-            first = False
+            prev = chunk
 
     def to_wav(self, text: str, path: str) -> None:
         pcm = b"".join(self.stream(text))
