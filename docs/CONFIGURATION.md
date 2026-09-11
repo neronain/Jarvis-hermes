@@ -170,6 +170,79 @@ cd ~/.hermes/hermes-agent && python3 -c "import hermes_time; print(hermes_time.g
 
 ---
 
+## ตัวแปรทั้งหมด
+
+สร้างจากโค้ดโดยตรง ไม่ได้พิมพ์มือ — ถ้าเพิ่มตัวแปรใหม่แล้วไม่อยู่ในนี้ แปลว่า
+ตารางนี้เก่าแล้ว (สร้างใหม่ด้วย `scripts/env-table.py`)
+
+| ตัวแปร | ค่าเริ่มต้น | ฝั่ง |
+|---|---|---|
+| `JARVIS_AI_DIR` | `$HOME/jarvis_ai` | สคริปต์ |
+| `JARVIS_BRANCH` | `main` | สคริปต์ |
+| `JARVIS_DIR` | `$HOME/Jarvis-hermes` | สคริปต์ |
+| `JARVIS_ENV_FILE` | `$HOME/.hermes/.env` | สคริปต์ |
+| `JARVIS_FRAME_MAX_BYTES` | `4000000` | host |
+| `JARVIS_GPU_DIR` | `~/jarvis-gpu-node` | GPU node |
+| `JARVIS_GPU_NODE` | `100.113.214.111` | สคริปต์ |
+| `JARVIS_GPU_SSH` | `neronain@100.84.136.110` | GPU node |
+| `JARVIS_HERE_TTL` | `900` | host |
+| `JARVIS_HERMES_WARM_HEARTBEAT` | `60` | host |
+| `JARVIS_HERMES_WARM_PROMPT` | `ตอบด้วยคำว่า พร้อม เพียงคำเดียว ห้ามเรียกใช…` | host |
+| `JARVIS_HERMES_WARM_SESSION_TURNS` | `20` | host |
+| `JARVIS_HERMES_WARM_TTL` | `600` | host |
+| `JARVIS_HUD_HTML` | `$HOME/jarvis_ai/server/hud/index.html` | สคริปต์ |
+| `JARVIS_LOOK_PROMPT` | `"ผู้ใช้ยกกล้องให้ดูสิ่งนี้ ช่วยดูแล้วตอบสั้…` | host |
+| `JARVIS_MAPS_3D` | `0` | host |
+| `JARVIS_PYTHON` | `python3` | GPU node |
+| `JARVIS_REPO` | `https://github.com/neronain/Jarvis-hermes.git` | สคริปต์ |
+| `JARVIS_SERVER_YAML` | `$HOME/jarvis_ai/server/config/server.yaml` | สคริปต์ |
+| `JARVIS_SESSION_MAX_TURNS` | `40` | host |
+| `JARVIS_SKIP_GPU_CHECK` | `0` | สคริปต์ |
+| `JARVIS_SKIP_INSTALL` | `0` | สคริปต์ |
+| `JARVIS_SMOKE_TEXT` | `สวัสดีครับ ระบบจาร์วิสพร้อมทำงานแล้ว` | สคริปต์ |
+| `JARVIS_STATS_HOST` | `0.0.0.0` | GPU node |
+| `JARVIS_STATS_PORT` | `8767` | GPU node |
+| `JARVIS_STT_BEAM` | `5` | GPU node |
+| `JARVIS_STT_COMPUTE` | `float16` | GPU node |
+| `JARVIS_STT_DEVICE` | `cuda` | GPU node |
+| `JARVIS_STT_DROP_FILLER` | `1` | GPU node |
+| `JARVIS_STT_HOST` | `0.0.0.0` | GPU node |
+| `JARVIS_STT_LANGUAGE` | `th` | GPU node |
+| `JARVIS_STT_MIN_LOGPROB` | `-1.0` | GPU node |
+| `JARVIS_STT_MODEL` | `large-v3` | GPU node |
+| `JARVIS_STT_NO_SPEECH_MAX` | `0.6` | GPU node |
+| `JARVIS_STT_PORT` | `8768` | GPU node |
+| `JARVIS_STT_RATE` | `16000` | GPU node |
+| `JARVIS_STT_TOKEN` | `—` | GPU node |
+| `JARVIS_STT_VAD` | `1` | GPU node |
+| `JARVIS_STT_WARMUP` | `1` | GPU node |
+| `JARVIS_TIMEZONE` | `Asia/Bangkok` | host |
+| `JARVIS_TORCH_INDEX` | `—` | GPU node |
+| `JARVIS_TTS_AUTO_TRANSLIT` | `0` | GPU node |
+| `JARVIS_TTS_CFG` | `2.0` | GPU node |
+| `JARVIS_TTS_HOST` | `0.0.0.0` | GPU node |
+| `JARVIS_TTS_KEEP_MS` | `25` | GPU node |
+| `JARVIS_TTS_MAX_CHARS` | `250` | GPU node |
+| `JARVIS_TTS_MODEL` | `v2` | GPU node |
+| `JARVIS_TTS_NORMALIZE` | `0.9` | GPU node |
+| `JARVIS_TTS_NORMALIZE_TEXT` | `1` | GPU node |
+| `JARVIS_TTS_PCM_RATE` | `16000` | GPU node |
+| `JARVIS_TTS_PORT` | `8769` | GPU node |
+| `JARVIS_TTS_SPEED` | `1.0` | GPU node |
+| `JARVIS_TTS_STEP` | `32` | GPU node |
+| `JARVIS_TTS_TOKEN` | `—` | GPU node |
+| `JARVIS_TTS_TRIM` | `1` | GPU node |
+| `JARVIS_TTS_TRIM_DB` | `-42` | GPU node |
+| `JARVIS_TTS_URL` | `http://100.84.136.110:8769` | host |
+| `JARVIS_TTS_VOICES` | `Path(__file__` | GPU node |
+| `JARVIS_TTS_WARMUP` | `1` | GPU node |
+| `JARVIS_VENV` | `$HERE/.venv` | GPU node |
+
+ส่วนที่ขึ้นต้นด้วย `JARVIS_DIR` `JARVIS_REPO` `JARVIS_BRANCH` `JARVIS_PYTHON`
+`JARVIS_VENV` `JARVIS_SKIP_*` เป็นตัวแปรของสคริปต์ติดตั้ง ไม่ใช่ของตัวระบบ
+
+---
+
 ## ค่าที่ต้องตรงกันทั้งสองฝั่ง
 
 ผิดคู่ไหนคู่หนึ่งแล้วอาการจะกำกวม ตรวจก่อนไล่หาที่อื่น:

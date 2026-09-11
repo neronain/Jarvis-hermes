@@ -31,6 +31,9 @@ jobs:
       - name: Run the voice-detector tests
         run: node --test 'tests/*.test.mjs'
 
+      - name: Every setting is documented
+        run: python3 scripts/env-table.py --check
+
       - name: Check shell scripts parse
         run: |
           for f in scripts/*.sh gpu-node/*.sh; do

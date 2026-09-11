@@ -254,8 +254,35 @@ python host/patches/apply_all.py ~/jarvis_ai
 | `apply_f5_tts.py` | ให้ voice server ใช้ F5-TTS-TH แทน ElevenLabs |
 | `apply_hud_fixes.py` | `/api/loadout` + แผง MODELS LOADOUT อ่านค่าจริง + ชื่อเครื่อง |
 | `apply_handsfree.py` | โหมดคุยต่อเนื่อง + เสียงตอบรับ + `/api/ack` |
+| `apply_voicemode.py` | อุ่น prefix ของโมเดลล่วงหน้า + `/api/warm` + เสียง 24 kHz |
+| `apply_turn_context.py` | ส่งวันที่จริงและคำสั่งการพูดไปกับทุกเทิร์น + หมุนเซสชัน |
+| `apply_maps.py` | `/api/map` `/api/mapkey` — แผนที่บน HUD |
+| `apply_camera.py` | `/api/look` `/api/camera` — ให้เอเจนต์ดูภาพจากกล้อง |
 
 เพิ่ม patcher ใหม่ = เพิ่มชื่อใน `PATCHES` ของ `apply_all.py` ที่เดียว
+
+### ติดตั้ง HUD v2 (Flight Deck)
+
+```bash
+./scripts/install-hud.sh ~/jarvis_ai
+systemctl --user restart jarvis-voice
+```
+
+เก็บหน้าเดิมของ upstream ไว้เป็น `index.upstream.html` · ถอยกลับด้วย
+`./scripts/install-hud.sh --rollback ~/jarvis_ai` · ดู [HUD.md](HUD.md#สองเวอร์ชัน)
+
+> `apply_all.py` รู้จัก v2 แล้ว — เจอ `server/hud/app.js` เมื่อไหร่จะไม่ restore
+> `index.html` ทับ และ patcher ที่เคยแก้ HUD จะข้ามครึ่งนั้นไปเอง
+
+### แผนที่และกล้อง (ถ้าจะใช้)
+
+```bash
+# ~/.hermes/.env
+JARVIS_MAPS_API_KEY=AIza...     # เปิด Maps Embed API — ไม่ต้องผูกบัตร
+```
+
+กล้องไม่ต้องใช้คีย์ แต่**ทั้งกล้องและตำแหน่งต้องเปิด HUD ผ่าน https (พอร์ต 8766)**
+เพราะเบราว์เซอร์ไม่อนุญาตบน http ธรรมดา
 
 ### ใส่ token
 
