@@ -92,6 +92,13 @@ CALL_NEW = '''        timeout = float(h.get("timeout", 240))
         try:
             it = self.hermes.chat_stream_events(session_id, transcript, timeout)'''
 
+# Typed turns go through /api/chat, which calls Hermes directly rather than
+# through _hermes_turn — so without this they were the one path that still had
+# no idea what today is.
+CHAT_OLD = """            for kind, value in HERMES.chat_stream_events(sid, text, timeout):"""
+CHAT_NEW = """            framed = build_turn_context(CFG, sid) + "\\n" + text
+            for kind, value in HERMES.chat_stream_events(sid, framed, timeout):"""
+
 STARTUP_ANCHOR = '@app.on_event("startup")\nasync def warm_pipeline() -> None:'
 
 
@@ -129,6 +136,7 @@ def main(argv: list[str]) -> int:
     print("server.py:", _patch(server, [
         (STARTUP_ANCHOR, BLOCK.lstrip("\n") + STARTUP_ANCHOR),
         (CALL_OLD, CALL_NEW),
+        (CHAT_OLD, CHAT_NEW),
     ], MARKER))
     return 0
 

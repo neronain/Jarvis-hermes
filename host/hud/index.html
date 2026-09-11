@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>J.A.R.V.I.S</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ─────────────────────────────────────────────────────────────
+   J.A.R.V.I.S Flight Deck — HUD v2.
+   A single committed visual world: an instrument panel in a dark
+   room. Every colour is painted explicitly; nothing is inherited.
+   Left rail is what you COMMAND, centre is what is HAPPENING,
+   right rail is what the system REPORTS.
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --void:#05060f; --deep:#080b18; --panel:#0b0f20; --panel-2:#0e1428;
+  --stroke:rgba(146,174,255,.13); --stroke-hot:rgba(53,232,255,.34);
+  /* cyan is signal, violet is the agent, magenta is the mic core and nothing else */
+  --cyan:#35e8ff; --violet:#7c5cff; --magenta:#ff4fd8;
+  /* semantic, deliberately outside the accent ramp */
+  --ok:#3df5a4; --warn:#ffc85c; --crit:#ff5c7a;
+  --ink:#c9d4f2; --ink-hi:#eef3ff; --mute:#7684ac; --faint:#4a5578;
+  --r-card:18px; --r-tile:14px;
+  --f-ui:"Chakra Petch","IBM Plex Sans Thai",system-ui,sans-serif;
+  --f-thai:"IBM Plex Sans Thai","Chakra Petch",system-ui,sans-serif;
+  --f-num:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:
+    radial-gradient(1100px 620px at 18% -8%, rgba(124,92,255,.16), transparent 60%),
+    radial-gradient(900px 560px at 86% 4%, rgba(53,232,255,.10), transparent 62%),
+    radial-gradient(700px 700px at 50% 108%, rgba(255,79,216,.07), transparent 60%),
+    var(--void);
+  background-attachment:fixed;
+  color:var(--ink); font-family:var(--f-ui); font-size:14px; line-height:1.5;
+  min-height:100vh; -webkit-font-smoothing:antialiased;
+}
+body::before{
+  content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background-image:
+    radial-gradient(1px 1px at 12% 22%, rgba(201,212,242,.5), transparent),
+    radial-gradient(1px 1px at 71% 14%, rgba(201,212,242,.35), transparent),
+    radial-gradient(1px 1px at 33% 68%, rgba(201,212,242,.3), transparent),
+    radial-gradient(1px 1px at 88% 56%, rgba(53,232,255,.4), transparent),
+    radial-gradient(1px 1px at 55% 88%, rgba(201,212,242,.28), transparent),
+    radial-gradient(1px 1px at 6% 78%, rgba(124,92,255,.4), transparent);
+}
+.wrap{position:relative;z-index:1;max-width:1560px;margin:0 auto;padding:16px 18px 24px}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--cyan);outline-offset:2px;border-radius:8px}
+
+/* ── status strip ─────────────────────────────────────────── */
+.status{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  font-family:var(--f-num);font-size:11.5px;letter-spacing:.06em;
+  color:var(--mute);padding:0 6px 14px;
+}
+.status b{color:var(--ink-hi);font-weight:500}
+.status .spacer{flex:1 1 auto}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:1px;background:var(--faint)}
+.dot.live{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.dot.warm{background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.dot.down{background:var(--crit);box-shadow:0 0 10px var(--crit)}
+
+/* ── three rails ──────────────────────────────────────────── */
+.deck{display:grid;grid-template-columns:302px minmax(0,1fr) 332px;gap:14px;align-items:start}
+.rail{display:grid;gap:14px;align-content:start}
+
+.card{
+  background:linear-gradient(168deg, var(--panel-2), var(--panel));
+  border:1px solid var(--stroke);border-radius:var(--r-card);
+  padding:16px 16px 15px;position:relative;
+  box-shadow:0 18px 40px -28px rgba(0,0,0,.9), inset 0 1px 0 rgba(178,200,255,.05);
+}
+.card.degraded{border-color:rgba(255,92,122,.45)}
+.card > h2{
+  margin:0 0 13px;font-size:10.5px;font-weight:600;letter-spacing:.17em;
+  text-transform:uppercase;color:var(--mute);display:flex;align-items:center;gap:8px;
+}
+.card > h2 .tag{
+  margin-left:auto;font-family:var(--f-num);font-size:9.5px;letter-spacing:.1em;
+  color:var(--faint);text-transform:none;
+}
+.card.hero{border-color:var(--stroke-hot);
+  box-shadow:0 0 0 1px rgba(53,232,255,.06), 0 24px 60px -34px rgba(53,232,255,.5)}
+
+/* ── left rail ────────────────────────────────────────────── */
+.greet{padding:20px 18px 16px}
+.greet .hi{font-size:25px;font-weight:600;color:var(--ink-hi);line-height:1.15;text-wrap:balance}
+.greet .sub{font-family:var(--f-thai);color:var(--mute);margin-top:7px;font-size:13.5px;line-height:1.55}
+.meter{height:6px;border-radius:99px;background:rgba(146,174,255,.10);margin-top:14px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,var(--cyan),var(--violet));transition:width .08s linear}
+
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{
+  background:rgba(146,174,255,.045);border:1px solid var(--stroke);
+  border-radius:var(--r-tile);padding:11px 6px 9px;text-align:center;cursor:pointer;
+  color:var(--ink);font:inherit;font-size:11px;
+  transition:border-color .18s, background .18s, transform .18s;
+}
+.tile:hover{border-color:var(--stroke-hot);background:rgba(53,232,255,.07);transform:translateY(-1px)}
+.tile svg{display:block;margin:0 auto 6px;color:var(--cyan)}
+.tile:nth-child(3n-1) svg{color:var(--violet)}
+.tile b{display:block;font-weight:500;color:var(--ink-hi)}
+.tile span{display:block;font-family:var(--f-num);font-size:9px;color:var(--faint);margin-top:2px}
+
+.rows{display:grid;gap:7px}
+.row{display:flex;align-items:center;gap:10px;background:rgba(146,174,255,.04);
+  border:1px solid var(--stroke);border-radius:12px;padding:9px 11px}
+.row .ico{width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;
+  background:rgba(124,92,255,.14);color:var(--violet)}
+.row .ico.c{background:rgba(53,232,255,.12);color:var(--cyan)}
+.row .body{min-width:0;flex:1}
+.row .body b{display:block;font-size:12.5px;font-weight:500;color:var(--ink-hi);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .body span{display:block;font-size:10.5px;color:var(--mute);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .end{flex:none}
+.pill{font-family:var(--f-num);font-size:9.5px;letter-spacing:.04em;padding:2.5px 7px;
+  border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.pill.ok{color:var(--ok)} .pill.warn{color:var(--warn)}
+.pill.crit{color:var(--crit)} .pill.idle{color:var(--faint)}
+.empty{font-family:var(--f-thai);color:var(--faint);font-size:12px;padding:6px 2px}
+
+.kv{display:flex;align-items:baseline;gap:10px;padding:6px 0;font-size:12.5px}
+.kv + .kv{border-top:1px solid var(--stroke)}
+.kv span{color:var(--mute);flex:none;width:52px}
+.kv b{color:var(--ink-hi);font-weight:500;min-width:0;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+
+/* ── centre stage ─────────────────────────────────────────── */
+.stage{display:grid;gap:14px;align-content:start;min-width:0}
+.presence{padding:0;overflow:hidden}
+#orb{display:block;width:100%;height:248px}
+.saidbar{margin:0 16px 16px;padding:11px 15px;border-radius:14px;
+  background:rgba(11,15,32,.82);border:1px solid var(--stroke);
+  font-family:var(--f-thai);font-size:13.5px;color:var(--ink-hi);
+  display:flex;align-items:center;gap:10px}
+.saidbar b{color:var(--cyan);font-weight:500;flex:none}
+.saidbar span{color:var(--mute);font-size:12.5px}
+
+.thread{display:grid;gap:11px;max-height:46vh;min-height:180px;overflow-y:auto;padding-right:4px}
+.thread::-webkit-scrollbar{width:5px}
+.thread::-webkit-scrollbar-thumb{background:rgba(146,174,255,.18);border-radius:99px}
+.msg{display:flex;gap:9px;align-items:flex-start}
+.msg .av{width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;
+  font-family:var(--f-num);font-size:9px;font-weight:700;color:var(--void);
+  background:linear-gradient(140deg,var(--cyan),var(--violet))}
+.bub{font-family:var(--f-thai);font-size:13px;line-height:1.62;
+  background:rgba(146,174,255,.055);border:1px solid var(--stroke);
+  border-radius:4px 14px 14px 14px;padding:9px 13px;color:var(--ink);max-width:84%;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.me{flex-direction:row-reverse}
+.msg.me .bub{border-radius:14px 4px 14px 14px;
+  background:linear-gradient(140deg,rgba(124,92,255,.30),rgba(53,232,255,.14));
+  border-color:rgba(124,92,255,.40);color:var(--ink-hi)}
+.msg.me .av{background:linear-gradient(140deg,var(--violet),var(--magenta))}
+.msg.live .bub{opacity:.62;font-style:italic}
+.msg.sys{justify-content:center}
+.note-line{font-family:var(--f-thai);font-size:11.5px;color:var(--faint);text-align:center}
+.meta{font-family:var(--f-num);font-size:9.5px;color:var(--faint);
+  letter-spacing:.06em;text-align:center}
+
+.composer{display:flex;gap:8px;margin-top:11px}
+.composer input{flex:1;min-width:0;background:rgba(5,6,15,.6);border:1px solid var(--stroke);
+  border-radius:12px;padding:10px 13px;color:var(--ink-hi);font-family:var(--f-thai);font-size:13px}
+.composer input::placeholder{color:var(--faint)}
+.btn{background:rgba(146,174,255,.06);border:1px solid var(--stroke);border-radius:12px;
+  color:var(--ink-hi);font:inherit;font-size:12px;padding:8px 14px;cursor:pointer}
+.btn.ok{color:var(--ok);border-color:currentColor}
+.btn.no{color:var(--crit);border-color:currentColor}
+.btn.stop{color:var(--crit);border-color:currentColor}
+
+.appr{border:1px solid var(--warn);border-radius:14px;padding:12px 14px;margin-top:10px;
+  background:rgba(255,200,92,.06)}
+.appr h3{margin:0 0 7px;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--warn)}
+.appr pre{margin:0 0 10px;font-family:var(--f-num);font-size:11px;color:var(--ink);
+  white-space:pre-wrap;overflow-wrap:anywhere;max-height:140px;overflow:auto}
+.rowbtn{display:flex;gap:8px}
+
+.mic{display:grid;place-items:center;padding:4px 0 16px;cursor:pointer}
+#micring{display:block;width:min(230px,58vw);height:min(230px,58vw)}
+.mic .state{margin-top:2px;text-align:center}
+.mic .state b{display:block;font-size:15px;color:var(--cyan)}
+.mic .state span{font-family:var(--f-thai);font-size:11.5px;color:var(--mute)}
+
+/* ── right rail ───────────────────────────────────────────── */
+.thermal{display:flex;align-items:flex-start;gap:14px}
+.thermal .big{font-family:var(--f-num);font-size:44px;font-weight:500;line-height:.95;
+  color:var(--ink-hi);letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.thermal .big sup{font-size:18px;vertical-align:super;color:var(--mute)}
+.thermal .lab{font-size:11px;color:var(--mute);margin-top:5px;max-width:150px}
+.thermal .right{margin-left:auto;text-align:right;font-family:var(--f-num);font-size:10.5px;
+  color:var(--mute);line-height:1.75;font-variant-numeric:tabular-nums}
+.thermal .right b{color:var(--ink-hi);font-weight:500}
+.strip{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:14px;
+  padding-top:13px;border-top:1px solid var(--stroke);min-height:70px}
+.strip div{text-align:center;font-family:var(--f-num)}
+.strip .t{font-size:9px;color:var(--faint);letter-spacing:.06em}
+.strip .b{height:34px;margin:6px auto 5px;width:8px;border-radius:99px;
+  background:rgba(146,174,255,.09);position:relative;overflow:hidden}
+.strip .b i{position:absolute;bottom:0;left:0;right:0;border-radius:99px;
+  background:linear-gradient(180deg,var(--warn),var(--cyan))}
+.strip .v{font-size:10.5px;color:var(--ink)}
+
+.insight{display:flex;align-items:center;gap:16px;margin-top:4px}
+.insight .num{font-family:var(--f-num);font-size:18px;color:var(--ink-hi);font-variant-numeric:tabular-nums}
+.insight .num small{font-size:11px;color:var(--mute)}
+.insight .cap{font-size:10.5px;color:var(--mute);margin-top:2px}
+
+.usage{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.stat{background:rgba(146,174,255,.04);border:1px solid var(--stroke);
+  border-radius:12px;padding:9px 11px}
+.stat b{display:block;font-family:var(--f-num);font-size:17px;color:var(--ink-hi);
+  font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:10px;color:var(--mute);margin-top:1px}
+
+/* ── dashboard view ───────────────────────────────────────── */
+.frame{width:100%;height:calc(100vh - 190px);min-height:420px;border:0;
+  border-radius:var(--r-card);background:var(--panel)}
+
+/* ── bottom nav ───────────────────────────────────────────── */
+.nav{
+  position:sticky;bottom:14px;margin:18px auto 0;max-width:560px;
+  display:grid;grid-template-columns:repeat(5,1fr);align-items:center;
+  background:rgba(8,11,24,.9);border:1px solid var(--stroke);
+  border-radius:26px;padding:9px 12px;backdrop-filter:blur(18px);
+  box-shadow:0 22px 50px -26px rgba(0,0,0,.95);z-index:5;
+}
+.nav button{background:none;border:0;color:var(--mute);font:inherit;font-size:10.5px;
+  cursor:pointer;display:grid;justify-items:center;gap:4px;padding:4px 0;border-radius:12px}
+.nav button[aria-current="true"]{color:var(--cyan)}
+.nav .core{
+  width:54px;height:54px;border-radius:50%;display:grid;place-items:center;justify-self:center;
+  background:radial-gradient(circle at 34% 30%, var(--cyan), var(--violet) 58%, var(--magenta));
+  color:var(--void);font-weight:700;font-size:15px;letter-spacing:.04em;
+  box-shadow:0 0 26px rgba(124,92,255,.6), 0 0 44px rgba(53,232,255,.25);
+  border:0;cursor:pointer;font-family:var(--f-ui);
+}
+.nav .core[aria-pressed="true"]{
+  box-shadow:0 0 34px rgba(53,232,255,.85), 0 0 60px rgba(124,92,255,.5);
+  outline:2px solid rgba(53,232,255,.6);outline-offset:3px;
+}
+
+@media (max-width:1240px){
+  .deck{grid-template-columns:282px minmax(0,1fr)}
+  .rail-r{grid-column:1 / -1;grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:880px){
+  .deck{grid-template-columns:minmax(0,1fr)}
+  .rail-r{grid-template-columns:minmax(0,1fr)}
+  .wrap{padding:12px 12px 20px}
+  .thread{max-height:40vh}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="status">
+    <span><span class="dot down" id="linkDot"></span>VOICE LINK <b id="linkText">…</b></span>
+    <span><span class="dot" id="warmDot"></span>PREFIX <b id="warmText">—</b> <span id="warmAge"></span></span>
+    <span class="spacer"></span>
+    <span id="rateBadge">24 kHz</span>
+    <span id="clock">--:--</span>
+  </div>
+
+  <!-- ═══════════════ DECK ═══════════════ -->
+  <div data-view="deck">
+  <div class="deck">
+
+    <!-- LEFT — what you command -->
+    <div class="rail">
+      <div class="card greet">
+        <div class="hi">สวัสดีครับ</div>
+        <div class="sub" id="stateHint">กดปุ่ม AI เพื่อเริ่มคุยต่อเนื่อง</div>
+        <div class="meter"><i id="levelBar"></i></div>
+      </div>
+
+      <div class="card">
+        <h2>สั่งงานด่วน</h2>
+        <div class="tiles">
+          <button class="tile" data-prompt="สรุปสิ่งที่เราคุยกันล่าสุดให้หน่อย"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16M4 10h16M4 15h10"/></svg><b>สรุป</b><span>SUMMARIZE</span></button>
+          <button class="tile" data-prompt="สถานะเครื่องทั้งหมดตอนนี้เป็นยังไงบ้าง"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 19V9M10 19V4M16 19v-7M22 19H2"/></svg><b>สถานะ</b><span>STATUS</span></button>
+          <button class="tile" data-prompt="วันนี้วันที่เท่าไหร่ และมีอะไรค้างอยู่บ้าง"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><b>วันนี้</b><span>TODAY</span></button>
+          <button class="tile" data-prompt="ช่วยค้นข้อมูลเรื่อง"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg><b>ค้นหา</b><span>SEARCH</span></button>
+          <button class="tile" data-prompt="รันคำสั่งบนเครื่องให้หน่อย"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg><b>เทอร์มินัล</b><span>SHELL</span></button>
+          <button class="tile" data-prompt="ช่วยเขียนโค้ดให้หน่อย"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 8l-5 4 5 4M15 8l5 4-5 4"/></svg><b>โค้ด</b><span>CODE</span></button>
+        </div>
+      </div>
+
+      <div class="card" id="ldCard">
+        <h2>โมเดลที่ใช้อยู่<span class="tag">LOADOUT</span></h2>
+        <div class="kv"><span>สมอง</span><b id="ldBrain">—</b></div>
+        <div class="kv"><span>ฟัง</span><b id="ldStt">—</b></div>
+        <div class="kv"><span>พูด</span><b id="ldTts">—</b></div>
+        <div class="kv"><span>เสียง</span><b id="ldVoice">—</b></div>
+      </div>
+
+      <div class="card">
+        <h2>เครื่องในระบบ<span class="tag">MACHINES</span></h2>
+        <div class="rows" id="machineRows"><div class="empty">กำลังอ่านสถานะ…</div></div>
+      </div>
+    </div>
+
+    <!-- CENTRE — what is happening -->
+    <div class="stage">
+      <div class="card hero presence">
+        <canvas id="orb"></canvas>
+        <div class="saidbar"><b id="stateName">พร้อม</b><span id="stateSub">พูดคุยด้วยเสียงภาษาไทย</span></div>
+      </div>
+
+      <div class="card">
+        <h2>บทสนทนา<span class="tag">LIVE</span>
+          <button class="btn stop" id="stopBtn" hidden style="margin-left:8px;padding:3px 10px;font-size:10.5px">หยุด</button>
+        </h2>
+        <div class="thread" id="thread">
+          <div class="empty">ยังไม่มีบทสนทนา — กดปุ่ม AI ด้านล่างแล้วพูดได้เลย</div>
+        </div>
+        <div id="approvals"></div>
+        <div class="composer">
+          <input id="textInput" type="text" placeholder="พิมพ์ก็ได้ กด Enter เพื่อส่ง" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="card mic" id="micCard">
+        <canvas id="micring"></canvas>
+        <div class="state">
+          <b id="micLabel">แตะเพื่อพูดครั้งเดียว</b>
+          <span>หรือกดปุ่ม AI เพื่อคุยต่อเนื่อง · Space = กดพูด</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT — what the system reports -->
+    <div class="rail rail-r">
+      <div class="card">
+        <h2>อุณหภูมิ GPU<span class="tag" id="gpuName">—</span></h2>
+        <div class="thermal">
+          <div>
+            <div class="big"><span id="gpuTemp">—</span><sup>°C</sup></div>
+            <div class="lab">ใบที่ร้อนที่สุดบน node</div>
+          </div>
+          <div class="right">
+            VRAM <b id="gpuVram">—</b><br>
+            ใช้งาน <b id="gpuUtil">—</b><br>
+            ใบที่ 2 <b id="gpuSecond">—</b>
+          </div>
+        </div>
+        <div class="strip" id="tempStrip"></div>
+      </div>
+
+      <div class="card">
+        <h2>เวลาตอบสนอง<span class="tag">เทิร์นล่าสุด</span></h2>
+        <svg viewBox="0 0 300 70" width="100%" height="70" role="img"
+             aria-label="เวลาจากจบประโยคถึงเสียงแรก ของเทิร์นล่าสุด">
+          <defs>
+            <linearGradient id="gfill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#7c5cff" stop-opacity=".45"/>
+              <stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" y1="17" x2="300" y2="17" stroke="rgba(146,174,255,.10)" stroke-width="1"/>
+          <line x1="0" y1="43" x2="300" y2="43" stroke="rgba(146,174,255,.10)" stroke-width="1"/>
+          <path id="sparkFill" fill="url(#gfill)" d=""/>
+          <path id="sparkLine" fill="none" stroke="#35e8ff" stroke-width="1.6" stroke-linejoin="round" d=""/>
+          <circle id="sparkEnd" r="3.2" fill="#35e8ff" cx="-10" cy="-10"/>
+          <text id="sparkHi" x="2" y="13" fill="#4a5578" font-family="JetBrains Mono, monospace" font-size="8">—</text>
+          <text id="sparkLo" x="2" y="66" fill="#4a5578" font-family="JetBrains Mono, monospace" font-size="8">—</text>
+        </svg>
+        <div class="insight">
+          <div>
+            <div class="num"><span id="latNow">—</span><small> วินาที</small></div>
+            <div class="cap">จบประโยค → เสียงแรก</div>
+            <div class="cap" id="latAvg">ยังไม่มีข้อมูล</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>วันนี้ใช้ไปเท่าไหร่<span class="tag">USAGE</span></h2>
+        <div class="usage">
+          <div class="stat"><b id="uTurns">—</b><span>เทิร์น</span></div>
+          <div class="stat"><b id="uChars">—</b><span>ตัวอักษรที่พูด</span></div>
+          <div class="stat"><b id="uIn">—</b><span>โทเคนเข้า</span></div>
+          <div class="stat"><b id="uOut">—</b><span>โทเคนออก</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  </div>
+
+  <!-- ═══════════════ DASHBOARD ═══════════════ -->
+  <div data-view="dashboard" hidden>
+    <div class="card" style="padding:12px">
+      <h2 style="margin-bottom:10px">HERMES DASHBOARD<span class="tag">พอร์ต 9443</span></h2>
+      <iframe id="dashFrame" class="frame" title="Hermes dashboard"></iframe>
+    </div>
+  </div>
+
+  <!-- ═══════════════ SYSTEM ═══════════════ -->
+  <div data-view="system" hidden>
+    <div class="deck" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div class="card">
+        <h2>สถานะการเชื่อมต่อ<span class="tag">DIAGNOSTICS</span></h2>
+        <div class="kv"><span>ลิงก์</span><b id="sysLink">—</b></div>
+        <div class="kv"><span>พรีฟิกซ์</span><b id="sysWarm">—</b></div>
+        <div class="kv"><span>อัตราสุ่ม</span><b id="sysRate">—</b></div>
+        <div class="kv"><span>ไมค์</span><b id="sysMic">ยังไม่ได้เปิด</b></div>
+        <div class="kv"><span>เทิร์น</span><b id="sysTurns">0</b></div>
+      </div>
+      <div class="card">
+        <h2>ตัวตรวจจับเสียง<span class="tag">VAD</span></h2>
+        <div class="kv"><span>ระดับ</span><b id="sysLevel">—</b></div>
+        <div class="kv"><span>เกณฑ์</span><b id="sysGate">—</b></div>
+        <div class="kv"><span>พื้นเสียง</span><b id="sysFloor">—</b></div>
+        <div class="kv"><span>เงียบมา</span><b id="sysSilence">—</b></div>
+        <p style="font-family:var(--f-thai);font-size:11.5px;color:var(--faint);margin:12px 0 0;line-height:1.7">
+          ปรับได้โดยไม่ต้อง deploy:<br>
+          <code style="font-family:var(--f-num);color:var(--cyan);font-size:11px">localStorage.setItem("jarvisVad", JSON.stringify({endMs:900}))</code>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <nav class="nav" aria-label="มุมมองหลัก">
+    <button data-goto="deck" aria-current="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 11l8-7 8 7v8a1 1 0 01-1 1h-5v-6h-4v6H5a1 1 0 01-1-1z"/></svg>หน้าหลัก</button>
+    <button data-scroll="thread"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M20 12a8 8 0 11-3.2-6.4"/><path d="M7 20l-3 1 1-3"/></svg>บทสนทนา</button>
+    <button class="core" id="coreBtn" aria-pressed="false" aria-label="สลับโหมดคุยต่อเนื่อง">AI</button>
+    <button data-goto="dashboard"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg>แดชบอร์ด</button>
+    <button data-goto="system"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path d="M19.4 15a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-1.9-.3 1.7 1.7 0 00-1 1.5V21a2 2 0 11-4 0v-.1A1.7 1.7 0 008.9 19a1.7 1.7 0 00-1.9.3l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00.3-1.9 1.7 1.7 0 00-1.5-1H3a2 2 0 110-4h.1A1.7 1.7 0 004.6 8.9a1.7 1.7 0 00-.3-1.9l-.1-.1a2 2 0 112.8-2.8l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>ระบบ</button>
+  </nav>
+</div>
+
+<script>
+  // The dashboard is a second FastAPI app on its own TLS port, reverse-proxying
+  // the Hermes web UI with its frame-blocking headers stripped.
+  window.JARVIS_DASHBOARD_URL = location.protocol + "//" + location.hostname + ":9443/";
+</script>
+<script src="vad.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -101,6 +101,10 @@ async def loadout() -> JSONResponse:
         "tts": tts,
         "voice": voice_name,
         "provider": provider,
+        # The HUD creates its AudioContext at this rate, and an AudioContext
+        # cannot change rate once made. Reading it from the server is what
+        # stops the two drifting into speech that plays at the wrong speed.
+        "tts_rate": int(voice_cfg.get("sample_rate", 16000)),
     }
     _LOADOUT_CACHE.update({"ts": now, "data": data})
     return JSONResponse(data)
@@ -191,6 +195,14 @@ def main(argv: list[str]) -> int:
         ('@app.get("/api/machines")', ENDPOINT + '@app.get("/api/machines")'),
         (MACHINE_OLD, MACHINE_NEW),
     ], MARKER))
+
+    # The Flight Deck (scripts/install-hud.sh) is our own page and has all of
+    # this built in, so there is nothing to splice into it. Skipping is the
+    # correct outcome rather than a failure — returning non-zero here aborted
+    # the whole patch run and silently left later patchers unapplied.
+    if (root / "server" / "hud" / "app.js").exists():
+        print("hud: skipped (Flight Deck installed)")
+        return 0
 
     print("hud:", _patch(hud, [
         (HUD_ROWS_OLD, HUD_ROWS_NEW),

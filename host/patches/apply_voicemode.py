@@ -237,7 +237,8 @@ def main(argv: list[str]) -> int:
     ], MARKER))
 
     hud = root / "server" / "hud" / "index.html"
-    if hud.exists():
+    # The Flight Deck already creates its AudioContext at the server's rate.
+    if hud.exists() and not (root / "server" / "hud" / "app.js").exists():
         print("hud:", _patch(hud, [
             (HUD_RATE_OLD, HUD_RATE_NEW, 1),
             (HUD_BUF_OLD, HUD_BUF_NEW, 0),   # playback and the ack clips both

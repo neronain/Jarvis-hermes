@@ -30,8 +30,22 @@ PATCHES = ["apply_f5_tts.py", "apply_hud_fixes.py", "apply_handsfree.py",
 TOUCHED = ["server/server.py", "server/hud/index.html"]
 
 
+def _touched(root: Path) -> list[str]:
+    """Which of those to restore.
+
+    Once the Flight Deck is installed the HUD is our own page, not upstream's
+    with edits cut into it — restoring it from .orig would throw it away on
+    every patch run. The patchers whose HUD half no longer has an anchor report
+    "anchor not found" and move on, which is the correct outcome: their server
+    half still applies, and the features they used to splice into the markup
+    are in the page already.
+    """
+    ours = (root / "server" / "hud" / "app.js").exists()
+    return [t for t in TOUCHED if not (ours and t.endswith("hud/index.html"))]
+
+
 def _restore(root: Path) -> None:
-    for rel in TOUCHED:
+    for rel in _touched(root):
         target = root / rel
         backup = target.with_suffix(target.suffix + ".orig")
         if backup.exists():

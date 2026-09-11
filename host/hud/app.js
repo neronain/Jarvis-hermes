@@ -415,6 +415,7 @@ registerProcessor("pcm16k",PCM16K);`;
     if (S.capturing) {
       S.capturing = false;
       S.ws.send(JSON.stringify({ type: "stop" }));
+      $("micLabel").textContent = "แตะเพื่อพูดครั้งเดียว";
       setState("thinking", "กำลังคิด…");
       return;
     }
@@ -424,7 +425,8 @@ registerProcessor("pcm16k",PCM16K);`;
       type: "start", sample_rate: 16000, format: "pcm_s16le", channels: 1, conversation: CONV,
     }));
     S.capturing = true;
-    setState("listening", "กำลังฟัง… กดอีกครั้งเพื่อส่ง");
+    $("micLabel").textContent = "แตะอีกครั้งเพื่อส่ง";
+    setState("listening", "กำลังฟัง… แตะอีกครั้งเพื่อส่ง");
   }
 
   function stopRun() {
@@ -434,15 +436,29 @@ registerProcessor("pcm16k",PCM16K);`;
     setState("standby");
   }
 
-  function sendText(text) {
-    if (!text || !S.wsReady) return;
+  /* Typed turns answer over HTTP, not the socket: /api/chat runs the turn and
+     returns the whole reply in its response. Voice turns stream back through
+     the websocket instead, which is why these two paths look different. */
+  async function sendText(text) {
+    if (!text) return;
     addMsg("me", text);
-    fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input: text, conversation: CONV }),
-    }).catch(() => addMsg("sys", "ส่งข้อความไม่สำเร็จ"));
     setState("thinking", "กำลังคิด…");
+    try {
+      const r = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: text, conversation: CONV }),
+      });
+      const j = await r.json();
+      if (j.error) addMsg("sys", j.error);
+      else if (j.text) addMsg("ai", j.text);
+      (j.tools || []).forEach((t) => addMeta("เครื่องมือ · " + (t.name || "tool")));
+      S.turns++;
+    } catch (e) {
+      addMsg("sys", "ส่งข้อความไม่สำเร็จ: " + e.message);
+    } finally {
+      setState("standby", S.handsFree ? "พูดได้เลย ไม่ต้องกด" : "กดปุ่ม AI เพื่อเริ่มคุยต่อเนื่อง");
+    }
   }
 
   /* ───────────────────────────── panels ─────────────────────────── */
@@ -701,6 +717,24 @@ registerProcessor("pcm16k",PCM16K);`;
     requestAnimationFrame(frame);
   }
 
+  /* The system view shows the detector's own numbers, so tuning it is a matter
+     of reading rather than guessing. Only painted while it is on screen. */
+  function refreshSystem() {
+    const view = document.querySelector('[data-view="system"]');
+    if (!view || view.hidden) return;
+    const st = vad.state();
+    const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+    set("sysLink", S.wsReady ? "เชื่อมต่ออยู่" : "หลุด");
+    set("sysWarm", $("warmText") ? $("warmText").textContent : "—");
+    set("sysRate", (S.ttsRate / 1000) + " kHz (เล่นกลับ) · 16 kHz (ไมค์)");
+    set("sysMic", S.mediaStream ? "เปิดอยู่ · AGC ปิด" : "ยังไม่ได้เปิด");
+    set("sysTurns", String(S.turns));
+    set("sysLevel", st.level.toFixed(4));
+    set("sysGate", st.gate ? st.gate.toFixed(4) : "—");
+    set("sysFloor", st.noiseFloor == null ? "ยังไม่ได้เรียนรู้" : st.noiseFloor.toFixed(4));
+    set("sysSilence", st.silenceMs + " ms / " + vad.cfg.endMs + " ms");
+  }
+
   /* ───────────────────────────── boot ───────────────────────────── */
 
   function wire() {
@@ -709,6 +743,13 @@ registerProcessor("pcm16k",PCM16K);`;
     $("stopBtn").onclick = stopRun;
     document.querySelectorAll(".nav button[data-goto]").forEach((b) => {
       b.onclick = () => showView(b.dataset.goto);
+    });
+    document.querySelectorAll(".nav button[data-scroll]").forEach((b) => {
+      b.onclick = () => {
+        showView("deck");
+        const el = $(b.dataset.scroll);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      };
     });
     document.querySelectorAll("[data-prompt]").forEach((b) => {
       b.onclick = () => sendText(b.dataset.prompt);
@@ -743,6 +784,7 @@ registerProcessor("pcm16k",PCM16K);`;
     setInterval(refreshUsage, 60000);
     setInterval(refreshWarm, 30000);
     setInterval(refreshLoadout, 60000);
+    setInterval(refreshSystem, 500);
     if (reduce) { drawOrb(); drawMic(); } else requestAnimationFrame(frame);
   }
 

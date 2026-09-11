@@ -419,6 +419,14 @@ def main(argv: list[str]) -> int:
         srv.write_text(ssrc.replace(srv_anchor, ACK_ENDPOINT + srv_anchor, 1), encoding="utf-8")
         print(f"patched {srv.name} (ack endpoint)")
 
+    # The Flight Deck (scripts/install-hud.sh) is our own page and has all of
+    # this built in, so there is nothing to splice into it. Skipping is the
+    # correct outcome rather than a failure — returning non-zero here aborted
+    # the whole patch run and silently left later patchers unapplied.
+    if (root / "server" / "hud" / "app.js").exists():
+        print("hud: skipped (Flight Deck installed)")
+        return 0
+
     backup = hud.with_suffix(".html.orig")
     src = hud.read_text(encoding="utf-8")
     if MARKER in src:

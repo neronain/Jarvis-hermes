@@ -2,6 +2,37 @@
 
 หน้าเว็บที่ใช้คุยด้วยเสียง ดูว่า agent กำลังทำอะไร และอนุมัติคำสั่งที่เสี่ยง
 
+## สองเวอร์ชัน
+
+| | v1 (upstream + patcher) | **v2 Flight Deck** |
+|---|---|---|
+| หน้าเว็บ | `index.html` ของ upstream เจาะแก้ด้วย patcher 4 ตัว | ไฟล์ของเราเอง |
+| ตัวตรวจจับเสียง | สตริง JS ข้างใน `apply_handsfree.py` | [`host/hud/vad.js`](../host/hud/vad.js) · เทสต์ 10 ตัว |
+| ผัง | คอลัมน์เดียว แผงเรียงเลข 01–10 | สามราง · สั่ง / กำลังเกิด / รายงาน |
+| เล่นเสียง | 16 kHz (ตรึงไว้ใน AudioContext) | 24 kHz อ่านค่าจาก `/api/loadout` |
+
+ติดตั้ง v2:
+
+```bash
+./scripts/install-hud.sh ~/jarvis_ai
+systemctl --user restart jarvis-voice
+```
+
+ถอยกลับ v1 (เก็บ `index.upstream.html` ไว้ให้แล้ว ไม่ต้องยุ่งกับ git):
+
+```bash
+./scripts/install-hud.sh --rollback ~/jarvis_ai
+systemctl --user restart jarvis-voice
+```
+
+> **`apply_all.py` รู้จัก v2 แล้ว** — ถ้าเจอ `server/hud/app.js` จะไม่ restore
+> `index.html` จาก `.orig` (ซึ่งจะทิ้ง Flight Deck ทุกครั้งที่ patch) และ patcher
+> ที่เคยแก้ HUD จะข้ามครึ่งนั้นไป โดยยังใส่ส่วน `server.py` ตามปกติ
+>
+> **กับดักที่เจอจริง:** ตอนแรก patcher คืนค่า non-zero เมื่อหา anchor ใน HUD ไม่เจอ
+> ซึ่งทำให้ `apply_all` หยุดกลางคัน — `apply_voicemode` กับ `apply_turn_context`
+> ไม่เคยถูกรัน และ `/api/warm` หายไปเงียบ ๆ · ตอนนี้ข้ามอย่างชัดเจนแทนที่จะล้มเหลว
+
 ## เข้าใช้งาน
 
 ```
