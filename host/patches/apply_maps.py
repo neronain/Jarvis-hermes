@@ -49,6 +49,29 @@ def _maps_key() -> str:
     return os.environ.get(MAPS_KEY_ENV, "").strip()
 
 
+# Where the person looking at the HUD is standing. The server cannot know this
+# and neither can the agent — only the browser can, and only with permission.
+# The HUD posts it here when it has it, and "here" resolves against it.
+_HERE: dict = {"lat": None, "lng": None, "accuracy": None, "at": 0.0}
+HERE_TTL = float(os.environ.get("JARVIS_HERE_TTL", "900"))
+_HERE_WORDS = {"here", "me", "my location", "current",
+               "ที่ผมอยู่", "ที่ฉันอยู่", "ตำแหน่งปัจจุบัน", "ที่นี่", "ผม", "ฉัน"}
+
+
+def _resolve_here(value: str) -> str:
+    """"here" -> "13.7461,100.5348", or raises with something worth saying."""
+    if (value or "").strip().lower() not in _HERE_WORDS:
+        return value
+    if _HERE["lat"] is None:
+        raise ValueError(
+            "ยังไม่รู้ตำแหน่งของคุณ — เปิด HUD ผ่าน https (พอร์ต 8766) "
+            "แล้วกดอนุญาตให้เข้าถึงตำแหน่ง เบราว์เซอร์ไม่ให้ขอตำแหน่งบน http ธรรมดา"
+        )
+    if time.time() - _HERE["at"] > HERE_TTL:
+        raise ValueError("ตำแหน่งที่เก็บไว้เก่าเกินไป — รีเฟรช HUD แล้วลองใหม่")
+    return f"{_HERE['lat']},{_HERE['lng']}"
+
+
 def _map_url(body: dict) -> tuple[str, str]:
     """(url, title) for one map request, or raises ValueError with the reason.
 
@@ -67,7 +90,7 @@ def _map_url(body: dict) -> tuple[str, str]:
         )
 
     mode = (body.get("mode") or "satellite").lower()
-    q = (body.get("q") or "").strip()
+    q = _resolve_here((body.get("q") or "").strip())
     lat, lng = body.get("lat"), body.get("lng")
     title = body.get("title") or q or "แผนที่"
 
@@ -84,12 +107,14 @@ def _map_url(body: dict) -> tuple[str, str]:
         return f"/hud/earth3d.html?{urlencode(params)}", title
 
     if mode == "directions":
-        origin = (body.get("origin") or "").strip()
-        dest = (body.get("destination") or q).strip()
-        if not origin or not dest:
+        raw_origin = (body.get("origin") or "").strip()
+        raw_dest = (body.get("destination") or q).strip()
+        if not raw_origin or not raw_dest:
             raise ValueError("directions needs origin and destination")
+        origin, dest = _resolve_here(raw_origin), _resolve_here(raw_dest)
         if not body.get("title"):
-            title = f"{origin} → {dest}"
+            # The label says "ที่ผมอยู่", not a pair of coordinates nobody reads.
+            title = f"{raw_origin} → {raw_dest}"
         url = ("https://www.google.com/maps/embed/v1/directions"
                f"?key={key}&origin={quote_plus(origin)}&destination={quote_plus(dest)}"
                f"&mode={quote_plus(body.get('travel') or 'driving')}&language=th&region=TH")
@@ -148,13 +173,43 @@ async def map_key() -> JSONResponse:
     return JSONResponse({"key": key})
 
 
+@app.post("/api/here")
+async def set_here(request: Request) -> JSONResponse:
+    """The HUD telling the server where its viewer is.
+
+    Kept in memory only, and only for HERE_TTL. It is one person's position in
+    a house, not a location history, and it has no business outliving the
+    process or reaching disk.
+    """
+    body = await request.json()
+    try:
+        lat, lng = float(body["lat"]), float(body["lng"])
+    except (KeyError, TypeError, ValueError):
+        return JSONResponse({"error": "lat and lng required"}, status_code=400)
+    if not (-90 <= lat <= 90 and -180 <= lng <= 180):
+        return JSONResponse({"error": "out of range"}, status_code=400)
+    _HERE.update(lat=round(lat, 6), lng=round(lng, 6),
+                 accuracy=body.get("accuracy"), at=time.time())
+    return JSONResponse({"ok": True, "accuracy_m": _HERE["accuracy"]})
+
+
+@app.get("/api/here")
+async def get_here() -> JSONResponse:
+    fresh = _HERE["lat"] is not None and (time.time() - _HERE["at"]) <= HERE_TTL
+    return JSONResponse({
+        "known": fresh,
+        "age_seconds": round(time.time() - _HERE["at"], 1) if _HERE["at"] else None,
+        "accuracy_m": _HERE["accuracy"] if fresh else None,
+    })
+
+
 @app.post("/api/map")
 async def show_map(request: Request) -> JSONResponse:
     """Put a map on every connected HUD.
 
     Body: {"q": "อนุสาวรีย์ชัยสมรภูมิ", "mode": "satellite"}
           {"lat": 13.7649, "lng": 100.5383, "mode": "earth", "title": "..."}
-          {"origin": "...", "destination": "...", "mode": "directions"}
+          {"origin": "here", "destination": "CYN Communication", "mode": "directions"}
           {"action": "dismiss"}
 
     The agent calls this with its terminal tool; it never sees the API key.

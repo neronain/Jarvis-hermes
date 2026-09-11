@@ -33,7 +33,8 @@ hermes:
     ในเทอร์มินัล แล้วค่อยตอบสั้น ๆ ว่าขึ้นให้แล้ว (ไม่ต้องอ่าน URL ออกเสียง)
     curl -s -X POST http://127.0.0.1:8765/api/map -H 'Content-Type: application/json'
     -d '{"q":"ชื่อสถานที่","mode":"satellite"}'
-    mode ใช้ได้: satellite, earth (3 มิติ), streetview, directions
+    mode ใช้ได้: satellite, earth (ดาวเทียมซูมสูง), streetview, directions
+    ถ้าผู้ใช้พูดว่า "จากที่ผมอยู่" หรือ "ทางไป" ให้ใส่ origin เป็น "here"
 
 stt:
   # Local fallback — runs on the host CPU when the GPU node is unreachable.

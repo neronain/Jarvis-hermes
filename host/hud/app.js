@@ -363,18 +363,56 @@ registerProcessor("pcm16k",PCM16K);`;
   }
 
   /* Typed "แผนที่ <ที่ไหน>" is a shortcut past the agent, for when you just
-     want to look at somewhere. */
+     want to look at somewhere. "ทางไป <ที่ไหน>" adds your own position. */
   const MAP_PREFIX = /^\s*(?:แผนที่|map|ดาวเทียม|satellite|earth|โลก3มิติ|3d)\s+(.+)$/i;
+  const ROUTE_PREFIX =
+    /^\s*(?:ทางไป|เส้นทางไป|เส้นทาง|ไปยัง|จาก(?:ที่|พิกัด)?(?:ผม|ฉัน)?(?:อยู่)?ไป|route to|directions to)\s+(.+)$/i;
 
-  async function requestMap(q, mode) {
+  /* Only the browser knows where it is, and only with permission — so this is
+     asked for at the moment somebody wants a route, not on page load, where a
+     permission prompt out of nowhere gets refused on reflex.
+     Geolocation needs a secure context: it works on the https port (8766) and
+     is simply absent on plain http, which is worth saying out loud rather than
+     failing silently. */
+  async function shareLocation() {
+    if (!navigator.geolocation) throw new Error("เบราว์เซอร์นี้ไม่รองรับการระบุตำแหน่ง");
+    if (!window.isSecureContext) {
+      throw new Error("ต้องเปิด HUD ผ่าน https (พอร์ต 8766) — เบราว์เซอร์ไม่ให้ขอตำแหน่งบน http ธรรมดา");
+    }
+    const pos = await new Promise((res, rej) =>
+      navigator.geolocation.getCurrentPosition(res, rej,
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 120000 }));
+    await fetch("/api/here", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lat: pos.coords.latitude, lng: pos.coords.longitude,
+        accuracy: Math.round(pos.coords.accuracy),
+      }),
+    });
+    return Math.round(pos.coords.accuracy);
+  }
+
+  async function routeFromHere(destination) {
+    addMsg("sys", "กำลังขอตำแหน่งของคุณ…");
+    let acc;
+    try { acc = await shareLocation(); }
+    catch (e) {
+      addMsg("sys", "ขอตำแหน่งไม่สำเร็จ: " + (e.message || "ถูกปฏิเสธ"));
+      return;
+    }
+    addMsg("sys", "ได้ตำแหน่งแล้ว (คลาดเคลื่อน ~" + acc + " เมตร)");
+    return requestMap(null, "directions", { origin: "here", destination });
+  }
+
+  async function requestMap(q, mode, extra) {
     try {
       const r = await fetch("/api/map", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ q, mode: mode || "satellite" }),
+        body: JSON.stringify(Object.assign({ q, mode: mode || "satellite" }, extra || {})),
       });
       const j = await r.json();
       if (j.error) {
-        $("panelTitle").textContent = q;
+        $("panelTitle").textContent = q || (extra && extra.destination) || "แผนที่";
         $("panelMode").textContent = "";
         $("panelBody").innerHTML = '<div class="msg-empty"><div><b>เปิดแผนที่ไม่ได้</b>' +
           esc(j.error) + "</div></div>";
@@ -509,6 +547,11 @@ registerProcessor("pcm16k",PCM16K);`;
      the websocket instead, which is why these two paths look different. */
   async function sendText(text) {
     if (!text) return;
+    const r = text.match(ROUTE_PREFIX);
+    if (r) {
+      addMsg("me", text);
+      return routeFromHere(r[1].trim());
+    }
     const m = text.match(MAP_PREFIX);
     if (m) {
       addMsg("me", text);
