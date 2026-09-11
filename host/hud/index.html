@@ -285,6 +285,24 @@ body::before{
   outline:2px solid rgba(53,232,255,.6);outline-offset:3px;
 }
 
+/* ── token gate ───────────────────────────────────────────── */
+.gate{position:fixed;inset:0;z-index:50;display:grid;place-items:center;padding:20px;
+  background:rgba(5,6,15,.93);backdrop-filter:blur(10px)}
+.gatebox{width:min(420px,100%);display:grid;gap:11px;
+  background:linear-gradient(168deg,var(--panel-2),var(--panel));
+  border:1px solid var(--stroke-hot);border-radius:var(--r-card);padding:24px 22px;
+  box-shadow:0 30px 70px -30px rgba(0,0,0,.95)}
+.gatebox h2{margin:0;font-size:17px;color:var(--ink-hi);font-weight:600}
+.gatebox p{margin:0;font-family:var(--f-thai);font-size:12.5px;color:var(--warn)}
+.gatebox input{background:rgba(5,6,15,.7);border:1px solid var(--stroke);
+  border-radius:12px;padding:12px 14px;color:var(--ink-hi);
+  font-family:var(--f-num);font-size:14px;width:100%}
+.gatebox input:focus{border-color:var(--stroke-hot);outline:none}
+.gatebox .btn{padding:11px;font-size:13.5px}
+.gatebox small{font-family:var(--f-thai);font-size:11px;color:var(--mute);line-height:1.8}
+.gatebox code{font-family:var(--f-num);font-size:11px;color:var(--cyan);
+  background:rgba(53,232,255,.09);padding:1px 5px;border-radius:5px}
+
 @media (max-width:1240px){
   .deck{grid-template-columns:282px minmax(0,1fr)}
   .rail-r{grid-column:1 / -1;grid-template-columns:repeat(2,minmax(0,1fr))}

@@ -34,6 +34,47 @@
 
   const CONV = new URLSearchParams(location.search).get("conversation") || "jarvis-main";
 
+  /* ───────────────────────── the token gate ─────────────────────── */
+
+  /* The only way in used to be a URL carrying ?token=, which works when you
+     paste a link and is useless the moment you open the HUD from a device's
+     own bookmark or type the address on a tablet. The page loaded, every API
+     call answered 401, and there was nowhere to put the token. So: ask.
+
+     The origin is shown as well, because the other way in fails — a host that
+     is not in security.extra_origin_hosts is refused whatever the token says,
+     and the two failures look identical from the sofa. */
+  function showTokenGate(reason) {
+    if ($("tokenGate")) return;
+    const g = document.createElement("div");
+    g.id = "tokenGate";
+    g.className = "gate";
+    g.innerHTML =
+      '<form class="gatebox" id="gateForm">' +
+      "<h2>ต้องใส่รหัสเข้าใช้งาน</h2>" +
+      "<p>" + esc(reason || "เซิร์ฟเวอร์ปฏิเสธคำขอ") + "</p>" +
+      '<input id="gateInput" type="password" autocomplete="current-password" ' +
+      'placeholder="วางรหัส HUD ที่นี่" spellcheck="false" autocapitalize="off">' +
+      '<button class="btn ok" type="submit">เข้าใช้งาน</button>' +
+      '<small>หารหัสได้จาก <code>JARVIS_HUD_TOKEN</code> ใน <code>~/.hermes/.env</code> ' +
+      'บนเครื่องที่รันเซิร์ฟเวอร์<br>' +
+      "ตอนนี้เปิดจาก <code>" + esc(location.host) + "</code> — " +
+      "ถ้ารหัสถูกแล้วยังเข้าไม่ได้ ต้องเพิ่มชื่อนี้ใน " +
+      "<code>security.extra_origin_hosts</code></small>" +
+      "</form>";
+    document.body.appendChild(g);
+    const input = $("gateInput");
+    input.focus();
+    $("gateForm").onsubmit = (e) => {
+      e.preventDefault();
+      const t = input.value.trim();
+      if (!t) return;
+      document.cookie = "jarvis_token=" + encodeURIComponent(t) +
+        ";path=/;max-age=31536000;samesite=lax";
+      location.reload();
+    };
+  }
+
   const S = {
     ws: null, wsReady: false,
     ttsRate: 24000,          // corrected from /api/loadout before any audio plays
@@ -607,8 +648,14 @@ registerProcessor("pcm16k",PCM16K);`;
     S.ws = new WebSocket(url);
     S.ws.binaryType = "arraybuffer";
     S.ws.onopen = () => { S.wsReady = true; linkDot(true); };
-    S.ws.onclose = () => {
+    S.ws.onclose = (ev) => {
       S.wsReady = false; linkDot(false);
+      if (ev && ev.code === 4401) {
+        // The server refuses a socket for two different reasons with one code:
+        // a wrong token, or an origin it does not know. Say both.
+        showTokenGate("เซิร์ฟเวอร์ปฏิเสธการเชื่อมต่อ (รหัสผิด หรือยังไม่อนุญาตที่อยู่นี้)");
+        return;                       // reconnecting in a loop helps nobody
+      }
       setState("standby", "ลิงก์หลุด — กำลังต่อใหม่");
       setTimeout(connect, 3000);
     };
@@ -778,6 +825,10 @@ registerProcessor("pcm16k",PCM16K);`;
 
   async function getJSON(url) {
     const r = await fetch(url);
+    if (r.status === 401) {
+      showTokenGate("รหัสไม่ถูกต้อง หรือยังไม่ได้ใส่");
+      throw new Error("unauthorised");
+    }
     if (!r.ok) throw new Error(url + " → HTTP " + r.status);
     return r.json();
   }
