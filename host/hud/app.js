@@ -42,6 +42,7 @@
     capturing: false, handsFree: false,
     agentBusy: false, lastAudioAt: 0,
     level: 0, turns: 0, currentRun: null,
+    lastFrameAt: 0, recovering: false,
     preroll: [], ackBuffers: [], ackTimer: null,
     latency: [], liveEl: null,
     uiState: "standby",
@@ -96,7 +97,14 @@
   }
 
   function botSpeaking() {
-    return S.activeSources.length > 0 && S.audioCtx && S.playhead > S.audioCtx.currentTime + 0.05;
+    // A suspended context freezes currentTime while playhead stays ahead of
+    // it, so this said "still speaking" forever — and since isAgentBusy() is
+    // built on it, the detector held the strict bar and went deaf. That is the
+    // "I had to refresh to be heard again" bug, and it needs both halves: the
+    // context resumed, and this not lying while it is not running.
+    if (!S.audioCtx || S.audioCtx.state !== "running") return false;
+    if (!S.activeSources.length) { S.playhead = 0; return false; }
+    return S.playhead > S.audioCtx.currentTime + 0.05;
   }
   function echoRisk() {
     return botSpeaking() || (performance.now() - S.lastAudioAt) < vad.cfg.echoGuardMs;
@@ -171,6 +179,48 @@ registerProcessor("pcm16k",PCM16K);`;
 
   const PREROLL_FRAMES = Math.max(1, Math.round(1200 / 80));
 
+  /* Frames arrive every 80 ms while the microphone is live. When they stop,
+     the session is deaf and nothing on screen says so — which is precisely
+     what "I have to refresh before it hears me again" means. Three things stop
+     them, and none of them raises an error:
+
+       the AudioContext suspends (tab hidden, OS audio change, autoplay policy)
+       the OS ends the track (sleep/wake, a headset connecting)
+       the worklet node is collected or its stream is replaced
+
+     So the state is checked rather than trusted, and rebuilt when it is wrong. */
+  async function micWatchdog() {
+    if (!S.mediaStream || S.recovering) return;
+    const ctx = S.audioCtx;
+    if (ctx && ctx.state === "suspended") {
+      try { await ctx.resume(); } catch (e) {}
+    }
+    const track = S.mediaStream.getAudioTracks()[0];
+    const trackDead = !track || track.readyState === "ended";
+    const silent = S.lastFrameAt && (performance.now() - S.lastFrameAt) > 4000;
+    if (!trackDead && !silent) return;
+
+    S.recovering = true;
+    micHealth(false, trackDead ? "ไมค์หลุด — กำลังต่อใหม่" : "ไม่ได้ยินเสียงเข้า — กำลังต่อใหม่");
+    try {
+      try { S.mediaStream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+      S.mediaStream = null;
+      await initMic();
+      micHealth(true, "");
+    } catch (err) {
+      micHealth(false, "ต่อไมค์ใหม่ไม่สำเร็จ: " + (err.message || err));
+    } finally {
+      S.recovering = false;
+    }
+  }
+
+  function micHealth(ok, why) {
+    const d = $("micDot"), t = $("micHealth");
+    if (d) d.className = "dot " + (ok ? "live" : "down");
+    if (t) t.textContent = ok ? "MIC" : (why || "MIC DOWN");
+    if (!ok && why) addMsg("sys", why);
+  }
+
   async function initMic() {
     const ctx = ensureCtx();
     if (!S.workletReady) {
@@ -188,9 +238,11 @@ registerProcessor("pcm16k",PCM16K);`;
         autoGainControl: false,
       },
     });
+    S.lastFrameAt = performance.now();
     const src = ctx.createMediaStreamSource(S.mediaStream);
     const node = new AudioWorkletNode(ctx, "pcm16k");
     node.port.onmessage = (e) => {
+      S.lastFrameAt = performance.now();
       if (S.capturing && S.wsReady) S.ws.send(e.data);
       const a = new Int16Array(e.data);
       let sum = 0;
@@ -485,6 +537,16 @@ registerProcessor("pcm16k",PCM16K);`;
     };
   }
 
+  /* A websocket that dies without closing never fires onclose, so wsReady
+     stays true and every send goes into a hole. readyState is the truth. */
+  function socketWatchdog() {
+    if (!S.ws) return;
+    const rs = S.ws.readyState;
+    if (rs === WebSocket.OPEN) return;
+    if (rs === WebSocket.CONNECTING) return;
+    if (S.wsReady) { S.wsReady = false; linkDot(false); connect(); }
+  }
+
   function linkDot(up) {
     const d = $("linkDot"); if (d) d.className = "dot " + (up ? "live" : "down");
     const t = $("linkText"); if (t) t.textContent = up ? "UP" : "DOWN";
@@ -507,6 +569,7 @@ registerProcessor("pcm16k",PCM16K);`;
     catch (err) { addMsg("sys", "เปิดไมค์ไม่ได้: " + err.message); return; }
     loadAcks();                        // not awaited: the first turn can go without
     S.handsFree = true;
+    micHealth(true, "");
     vad.enable();
     $("coreBtn").setAttribute("aria-pressed", "true");
     setState("standby", "พูดได้เลย ไม่ต้องกด");
@@ -883,7 +946,10 @@ registerProcessor("pcm16k",PCM16K);`;
     set("sysLink", S.wsReady ? "เชื่อมต่ออยู่" : "หลุด");
     set("sysWarm", $("warmText") ? $("warmText").textContent : "—");
     set("sysRate", (S.ttsRate / 1000) + " kHz (เล่นกลับ) · 16 kHz (ไมค์)");
-    set("sysMic", S.mediaStream ? "เปิดอยู่ · AGC ปิด" : "ยังไม่ได้เปิด");
+    const age = S.lastFrameAt ? Math.round(performance.now() - S.lastFrameAt) : null;
+    set("sysMic", !S.mediaStream ? "ยังไม่ได้เปิด"
+      : "เปิดอยู่ · AGC ปิด · เฟรมล่าสุด " + (age === null ? "—" : age + " ms"));
+    set("sysCtx", S.audioCtx ? S.audioCtx.state : "ยังไม่สร้าง");
     set("sysTurns", String(S.turns));
     set("sysLevel", st.level.toFixed(4));
     set("sysGate", st.gate ? st.gate.toFixed(4) : "—");
@@ -943,6 +1009,15 @@ registerProcessor("pcm16k",PCM16K);`;
     setInterval(refreshWarm, 30000);
     setInterval(refreshLoadout, 60000);
     setInterval(refreshSystem, 500);
+    setInterval(micWatchdog, 2000);
+    setInterval(socketWatchdog, 5000);
+    // A hidden tab is the commonest way the context suspends; resume the
+    // moment it comes back rather than waiting for the watchdog to notice.
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && S.audioCtx && S.audioCtx.state === "suspended") {
+        S.audioCtx.resume().catch(() => {});
+      }
+    });
     if (reduce) { drawOrb(); drawMic(); } else requestAnimationFrame(frame);
   }
 
