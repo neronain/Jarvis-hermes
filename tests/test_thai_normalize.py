@@ -780,3 +780,34 @@ class TestGlossPunctuation:
 
     def test_a_question_mark_too(self, g):
         assert "Really" not in g.normalize("จริงหรือ? (Really?) ครับ")
+
+
+class TestLoneLatin:
+    """A single Latin letter sitting in Thai has no reading — the voice skips
+    it or guesses, and either way the sentence loses a word."""
+
+    @pytest.fixture
+    def l(self):
+        return tn.ThaiNormalizer(lexicon={
+            "abbreviations": {}, "symbols": {},
+            "words": {"GPU": "จีพียู", "kg": "กิโลกรัม"}})
+
+    def test_a_letter_used_as_a_name(self, l):
+        """"ชั้น U" was read with the U simply absent."""
+        assert l.normalize("ชั้น U ครับ") == "ชั้น ยู ครับ"
+
+    def test_a_two_letter_fragment(self, l):
+        """"รบก el" — the model's own typo for รบกวน — kept a bare "el"."""
+        assert "อีแอล" in l.normalize("รบก el พี่")
+
+    def test_three_letters_are_left_alone(self, l):
+        """cat is a word; ซีเอที is worse than leaving it."""
+        assert l.normalize("cat") == "cat"
+
+    def test_the_lexicon_still_wins(self, l):
+        assert "กิโลกรัม" in l.normalize("หนัก 5 kg")
+        assert "จีพียู" in l.normalize("GPU ว่าง")
+
+    def test_it_does_not_reach_into_an_address(self, l):
+        out = l.normalize("อีเมล a@b.com")
+        assert "@" not in out and "b.com" not in out

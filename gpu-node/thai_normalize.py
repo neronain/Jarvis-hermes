@@ -513,10 +513,22 @@ class ThaiNormalizer:
     # A run of capitals is an acronym, not a word: CYN, GPU, ID, API.
     _ACRONYM = re.compile(r"\b[A-Z]{2,6}\b")
 
+    # A lone Latin token surrounded by Thai has no reading at all — the voice
+    # either skips it or guesses. "ชั้น U" came out with a silent U, and "รบก el"
+    # (the model's own typo for รบกวน) kept a bare "el". One or two characters
+    # is a letter used as a name, or a fragment, and reads as letters.
+    #
+    # Three is where it stops: "cat" is a word, and spelling it ซีเอที is worse
+    # than leaving it for the transliterator. An existing test says so.
+    _LONE_LATIN = re.compile(r"(?<![A-Za-z0-9@./-])([A-Za-z]{1,2})(?![A-Za-z0-9@./-])")
+
     def _acronyms(self, text: str) -> str:
         known = {k.lower() for k in self.words}
-        return self._ACRONYM.sub(
+        text = self._ACRONYM.sub(
             lambda m: m.group(0) if m.group(0).lower() in known else spell_latin(m.group(0)),
+            text)
+        return self._LONE_LATIN.sub(
+            lambda m: m.group(1) if m.group(1).lower() in known else spell_latin(m.group(1)),
             text)
 
     def _times(self, text: str) -> str:
